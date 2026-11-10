@@ -72,7 +72,7 @@
 #define hps_alert(fmt, args...)             pr_alert("[HPS] " fmt, ##args)
 #define hps_crit(fmt, args...)              pr_crit("[HPS] " fmt, ##args)
 #define hps_error(fmt, args...)             pr_err("[HPS] " fmt, ##args)
-#define hps_warn(fmt, args...)              pr_warn("[HPS] " fmt, ##args)
+#define hps_warn(fmt, args...)              pr_debug("[HPS] " fmt, ##args)
 /* #define hps_warn(fmt, args...)              printk(KERN_DEBUG "[HPS] " fmt, ##args) */
 /* #define hps_warn(fmt, args...)              pr_emerg("[HPS] " fmt, ##args) */
 #define hps_notice(fmt, args...)            pr_notice("[HPS] " fmt, ##args)

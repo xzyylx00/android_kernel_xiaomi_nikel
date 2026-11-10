@@ -490,7 +490,7 @@ static int fts_read_touchdata(struct ts_event *data)
 
 	ret = fts_i2c_read(fts_i2c_client, buf, 1, buf, POINT_READ_BUF);
 	if (ret < 0) {
-		printk("[B]Read touchdata failed, ret: %d", ret);
+		pr_debug("[B]Read touchdata failed, ret: %d", ret);
 		return ret;
 	}
 	ret = data->touchs;
@@ -553,17 +553,17 @@ static int fts_report_key(struct ts_event *data)
 	if (data->au8_touch_event[i] == 0
 		|| data->au8_touch_event[i] == 2) {
 		if (data->au8_touch_event[i] == 0) {
-			printk("[B]Key(%d, %d) DOWN!", data->au16_x[0],
+			pr_debug("[B]Key(%d, %d) DOWN!", data->au16_x[0],
 				 data->au16_y[0]);
 		}
 		tpd_button(data->au16_x[0], data->au16_y[0], 1);
-		printk("[B]Key(%d, %d) DOWN!", data->au16_x[0],
+		pr_debug("[B]Key(%d, %d) DOWN!", data->au16_x[0],
 			  data->au16_y[0]);
 	} else {
 		tpd_button(data->au16_x[0], data->au16_y[0], 0);
-		printk("[B]Key(%d, %d) UP!", data->au16_x[0],
+		pr_debug("[B]Key(%d, %d) UP!", data->au16_x[0],
 			  data->au16_y[0]);
-		printk("[B]Key(%d, %d) UP!", data->au16_x[0],
+		pr_debug("[B]Key(%d, %d) UP!", data->au16_x[0],
 			  data->au16_y[0]);
 	}
 
@@ -597,7 +597,7 @@ static int fts_report_value(struct ts_event *data)
 		if (data->au8_touch_event[i] == 0
 		    || data->au8_touch_event[i] == 2) {
 			if (data->au8_touch_event[i] == 0) {
-				printk("[B]P%d(%4d,%4d)[tm:%d] DOWN!",
+				pr_debug("[B]P%d(%4d,%4d)[tm:%d] DOWN!",
 				data->au8_finger_id[i],
 				data->au16_x[i], data->au16_y[i],
 				data->area[i]);
@@ -610,7 +610,7 @@ static int fts_report_value(struct ts_event *data)
 					if (data->pressure[i] > 0) {
 						pressure = data->pressure[i];
 					} else {
-						printk("[B]Illegal pressure: %d", data->pressure[i]);
+						pr_debug("[B]Illegal pressure: %d", data->pressure[i]);
 						pressure = 1;
 					}
 				} else {
@@ -622,7 +622,7 @@ static int fts_report_value(struct ts_event *data)
 			if (data->area[i] > 0) {
 				input_report_abs(tpd->dev, ABS_MT_TOUCH_MAJOR, data->area[i]);	/* 0x05 */
 			} else {
-				printk("[B]Illegal touch-major: %d", data->area[i]);
+				pr_debug("[B]Illegal touch-major: %d", data->area[i]);
 				input_report_abs(tpd->dev, ABS_MT_TOUCH_MAJOR, 1);	/* 0x05 */
 			}
 			input_report_abs(tpd->dev, ABS_MT_POSITION_X,
@@ -633,12 +633,12 @@ static int fts_report_value(struct ts_event *data)
 			data->touchs |= BIT(data->au8_finger_id[i]);
 
 			if (FTS_REPORT_PRESSURE_EN) {
-				printk("[B]P%d(%4d,%4d)[p:%d,tm:%d] DOWN!",
+				pr_debug("[B]P%d(%4d,%4d)[p:%d,tm:%d] DOWN!",
 					  data->au8_finger_id[i],
 					  data->au16_x[i], data->au16_y[i],
 					  pressure, data->area[i]);
 			} else {
-				printk("[B]P%d(%4d,%4d)[tm:%d] DOWN!",
+				pr_debug("[B]P%d(%4d,%4d)[tm:%d] DOWN!",
 					  data->au8_finger_id[i],
 					  data->au16_x[i], data->au16_y[i],
 					  data->area[i]);
@@ -651,16 +651,16 @@ static int fts_report_value(struct ts_event *data)
 				input_report_abs(tpd->dev, ABS_MT_PRESSURE, 0);
 			}
 			data->touchs &= ~BIT(data->au8_finger_id[i]);
-			printk("[B]P%d UP!", data->au8_finger_id[i]);
-			printk("[B]P%d UP!", data->au8_finger_id[i]);
+			pr_debug("[B]P%d UP!", data->au8_finger_id[i]);
+			pr_debug("[B]P%d UP!", data->au8_finger_id[i]);
 		}
 
 	}
 	for (i = 0; i < tpd_dts_data.touch_max_num; i++) {
 		if (BIT(i) & (data->touchs ^ touchs)) {
-			printk("[B]P%d UP!", i);
+			pr_debug("[B]P%d UP!", i);
 			reported = true;
-			printk("[B]P%d UP!", i);
+			pr_debug("[B]P%d UP!", i);
 			data->touchs &= ~BIT(i);
 			input_mt_slot(tpd->dev, i);
 			input_mt_report_slot_state(tpd->dev, MT_TOOL_FINGER,
@@ -685,7 +685,7 @@ static int fts_report_value(struct ts_event *data)
 
 	if (reported) {
 		if ((data->touch_point == up_point) || !data->touch_point_num) {
-			printk("[B]Points All UP!");
+			pr_debug("[B]Points All UP!");
 			input_report_key(tpd->dev, BTN_TOUCH, 0);
 		} else {
 			input_report_key(tpd->dev, BTN_TOUCH, 1);

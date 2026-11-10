@@ -20,6 +20,7 @@
 #include <linux/fs.h>
 #include <linux/of.h>
 #include <linux/of_fdt.h>
+#include <linux/gpio.h>
 #include <asm/atomic.h>
 
 #include "kd_camera_typedef.h"
@@ -110,7 +111,7 @@ u32 pinSet[3][8] = {
 
 PowerCust PowerCustList = {
 	{
-	 {GPIO_UNSUPPORTED, GPIO_MODE_GPIO, Vol_High},	/* for AVDD; */
+	 {GPIO_SUPPORTED, GPIO_MODE_GPIO, Vol_High},	/* for AVDD; */
 	 {GPIO_UNSUPPORTED, GPIO_MODE_GPIO, Vol_High},	/* for DVDD; */
 	 {GPIO_UNSUPPORTED, GPIO_MODE_GPIO, Vol_Low},	/* for DOVDD; */
 	 {GPIO_UNSUPPORTED, GPIO_MODE_GPIO, Vol_Low},	/* for AFVDD; */
@@ -344,13 +345,13 @@ PowerUp PowerOnList = {
 	  {SENSOR_DRVNAME_S5K3L8_MIPI_RAW,
 	  {
 	   {SensorMCLK, Vol_High, 0},
-	   {PDN, Vol_Low, 0},
-	   {RST, Vol_Low, 0},
 	   {DOVDD, Vol_1800, 0},
 	   {AVDD, Vol_2800, 0},
 	   {DVDD, Vol_1200, 0},
-	   {AFVDD, Vol_2800, 1},
+	   {AFVDD, Vol_2800, 5},
+	   {PDN, Vol_Low, 4},
 	   {PDN, Vol_High, 0},
+	   {RST, Vol_Low, 1},
 	   {RST, Vol_High, 0}
 	   },
 	  },
@@ -638,6 +639,27 @@ int mtkcam_gpio_init(struct platform_device *pdev)
 	return ret;
 }
 
+/*
+ * The pinctrl state only muxes the pin to GPIO mode; it does not reliably
+ * drive the output level on this platform.  Drive reset/power-down lines
+ * explicitly through gpiolib so the sensor really leaves reset.
+ */
+static int cam_gpio_drive(int pin, int val)
+{
+	int ret;
+
+	if (!gpio_is_valid(pin))
+		return -EINVAL;
+
+	ret = gpio_request(pin, "kd_camera_hw");
+	if (ret && ret != -EBUSY)
+		return ret;
+
+	gpio_direction_output(pin, val ? 1 : 0);
+	gpio_set_value(pin, val ? 1 : 0);
+	return 0;
+}
+
 int mtkcam_gpio_set(int PinIdx, int PwrType, int Val)
 {
 	int ret = 0;
@@ -672,6 +694,8 @@ int mtkcam_gpio_set(int PinIdx, int PwrType, int Val)
 			else
 				PK_ERR("%s : pinctrl err, PinIdx %d, Val %d, RST\n", __func__,PinIdx ,Val);
 		}
+		if (PinIdx >= 0 && PinIdx < 3)
+			cam_gpio_drive(pinSet[PinIdx][IDX_PS_CMRST], Val ? 1 : 0);
 		break;
 	case PDN:
 		if (PinIdx == 0) {
@@ -696,6 +720,8 @@ int mtkcam_gpio_set(int PinIdx, int PwrType, int Val)
 			else
 				PK_ERR("%s : pinctrl err, PinIdx %d, Val %d, PDN\n", __func__,PinIdx ,Val);
 		}
+		if (PinIdx >= 0 && PinIdx < 3)
+			cam_gpio_drive(pinSet[PinIdx][IDX_PS_CMPDN], Val ? 1 : 0);
 		break;
 	case AVDD:
 	case MAIN2_AVDD:
@@ -717,6 +743,9 @@ int mtkcam_gpio_set(int PinIdx, int PwrType, int Val)
 			mAVDD_usercounter ++;
 			pinctrl_select_state(camctrl, cam_ldo_vcama_h);
 		}
+		/* The pinctrl state only muxes GPIO253; drive the external AVDD
+		 * LDO enable explicitly like the stock kernel does. */
+		cam_gpio_drive(CAMERA_VCAMA_EN_PIN, Val ? 1 : 0);
 		break;
 	case DVDD:
 	case MAIN2_DVDD:
@@ -814,7 +843,12 @@ BOOL hwpoweron(PowerInformation pwInfo, char *mode_name)
 			if (PowerCustList.PowerCustInfo[CUST_SUB_DVDD].Gpio_Pin == GPIO_UNSUPPORTED) {
 				PK_DBG("[CAMERA SENSOR] Sub camera VCAM_D power on");
 				if (pwInfo.Voltage == Vol_1200) {
-					pwInfo.Voltage = Vol_1220;
+					/* nikel vcamd LDO max is 1210000uV; 1220000 makes
+					 * regulator_set_voltage() fail ("unsupportable
+					 * voltage range: 1220000-1210000uV"), which fails
+					 * the whole camera power-on and crashes mediaserver
+					 * on the boot-time sensor probe. */
+					pwInfo.Voltage = Vol_1210;
 					PK_DBG("[CAMERA SENSOR] Sub camera VCAM_D power 1.2V to 1.21V\n");
 				}
 				if (TRUE != _hwPowerOn(SUB_DVDD, pwInfo.Voltage)) {

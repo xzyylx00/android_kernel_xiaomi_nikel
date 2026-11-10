@@ -379,7 +379,7 @@ static unsigned int charging_get_current(void *data)
             sum_current += ((val >> i) & 0x01) * currentArray[i];
         }
  
-        printk("[%s %d]------------------call dump_stack---------current_value = %dmA register_value = 0x%x--------------\n\n\n\n",__FUNCTION__,__LINE__,sum_current,val);
+        pr_debug("[%s %d]------------------call dump_stack---------current_value = %dmA register_value = 0x%x--------------\n\n\n\n",__FUNCTION__,__LINE__,sum_current,val);
 //        dump_stack();
         *(unsigned int *) data = sum_current;
 
@@ -402,7 +402,7 @@ static unsigned int charging_set_current(void *data)
 	register_value = charging_parameter_to_value(CS_VTH, array_size, set_chr_current);
 	/* bq25890_config_interface(bq25890_CON4, register_value, 0x7F, 0); */
 	
-	printk("[%s %d]------------------call dump_stack---------current_value = %d register_value = 0x%x--------------\n\n\n\n",__FUNCTION__,__LINE__,current_value,register_value);
+	pr_debug("[%s %d]------------------call dump_stack---------current_value = %d register_value = 0x%x--------------\n\n\n\n",__FUNCTION__,__LINE__,current_value,register_value);
 //	dump_stack();
 	
 	bq25890_set_ichg(register_value);
@@ -444,7 +444,7 @@ static unsigned int charging_set_input_current(void *data)
 	/* bq25890_config_interface(bq25890_CON0, register_value, 0x3F, 0);//input  current */
 	
 	
-	printk("[%s %d]------------------call dump_stack----------current_value = %d register_value = 0x%x---------------\n\n\n\n",__FUNCTION__,__LINE__,current_value,register_value);
+	pr_debug("[%s %d]------------------call dump_stack----------current_value = %d register_value = 0x%x---------------\n\n\n\n",__FUNCTION__,__LINE__,current_value,register_value);
 //	dump_stack();
 	
 	bq25890_set_iinlim(register_value);

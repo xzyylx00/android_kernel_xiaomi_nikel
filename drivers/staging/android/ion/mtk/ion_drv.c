@@ -650,6 +650,15 @@ static struct ion_platform_heap ion_drv_platform_heaps[] = {
 				.priv = NULL,
 		},
 		{
+				.type = ION_HEAP_TYPE_MULTIMEDIA_FOR_CAMERA,
+				.id = ION_HEAP_TYPE_MULTIMEDIA_FOR_CAMERA,
+				.name = "ion_mm_heap_for_camera",
+				.base = 0,
+				.size = 0,
+				.align = 0,
+				.priv = NULL,
+		},
+		{
 				.type = ION_HEAP_TYPE_CARVEOUT,
 				.id = ION_HEAP_TYPE_CARVEOUT,
 				.name = "ion_carveout_heap",

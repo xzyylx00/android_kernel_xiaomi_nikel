@@ -1124,7 +1124,7 @@ static void preview_setting(void)
   write_cmos_sensor(0x0110, 0x0002);
   write_cmos_sensor(0x0136, 0x1800);
   write_cmos_sensor(0x0304, 0x0006);
-  write_cmos_sensor(0x0306, 0x00AF);
+  write_cmos_sensor(0x0306, 0x00B1);
   write_cmos_sensor(0x0302, 0x0001);
   write_cmos_sensor(0x0300, 0x0005);
   write_cmos_sensor(0x030C, 0x0006);

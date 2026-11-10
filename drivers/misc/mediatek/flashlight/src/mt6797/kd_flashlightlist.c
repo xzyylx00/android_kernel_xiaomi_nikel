@@ -157,7 +157,7 @@ int flashlight_gpio_set(int pin , int state)
 {
 	int ret = 0;
 
-	if (IS_ERR(flashlight_pinctrl)) {
+	if (!flashlight_pinctrl || IS_ERR(flashlight_pinctrl)) {
 		logI("%s : set err, flashlight_pinctrl not available\n", __func__);
 		return -1;
 	}

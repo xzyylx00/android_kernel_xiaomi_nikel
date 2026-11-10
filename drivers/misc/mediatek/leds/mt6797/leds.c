@@ -16,6 +16,7 @@
 #include <linux/ctype.h>
 #include <linux/leds.h>
 #include <linux/of.h>
+#include <linux/pinctrl/consumer.h>
 /* #include <linux/leds-mt65xx.h> */
 #include <linux/workqueue.h>
 #include <linux/wakelock.h>
@@ -220,6 +221,75 @@ void mt_set_bl_frequency(unsigned int freq)
 	bl_frequency_hal = freq;
 }
 
+/* button-backlight (nav key LED) pinctrl handling, ported from official kernel:
+ * the DTS declares button-backlight as MT65XX_LED_MODE_GPIO with data=<1>;
+ * official replaces data with button_backlights_enable_output() so the set path
+ * selects pinctrl state output0/output1 instead of calling through 0x1.
+ */
+static struct pinctrl *button_backlight_pinctrl;
+static struct pinctrl_state *button_backlight_state_default;
+static struct pinctrl_state *button_backlight_state0;
+static struct pinctrl_state *button_backlight_state1;
+static bool button_backlight_ready;
+
+int button_backlight_pinctrl_init(struct device *dev)
+{
+	int ret;
+
+	button_backlight_pinctrl = devm_pinctrl_get(dev);
+	if (IS_ERR(button_backlight_pinctrl)) {
+		ret = PTR_ERR(button_backlight_pinctrl);
+		LEDS_DEBUG("Cannot find hall pinctrl1!\n");
+		return ret;
+	}
+
+	button_backlight_state_default =
+	    pinctrl_lookup_state(button_backlight_pinctrl, "default");
+	if (IS_ERR(button_backlight_state_default)) {
+		ret = PTR_ERR(button_backlight_state_default);
+		LEDS_DEBUG("Cannot find hall pinctrl default!\n");
+		return ret;
+	}
+
+	button_backlight_state0 =
+	    pinctrl_lookup_state(button_backlight_pinctrl,
+				 "button_backlight_output0");
+	if (IS_ERR(button_backlight_state0)) {
+		ret = PTR_ERR(button_backlight_state0);
+		LEDS_DEBUG
+		    ("Cannot find hall pinctrl button_backlights_output0!\n");
+		return ret;
+	}
+
+	button_backlight_state1 =
+	    pinctrl_lookup_state(button_backlight_pinctrl,
+				 "button_backlight_output1");
+	if (IS_ERR(button_backlight_state1)) {
+		ret = PTR_ERR(button_backlight_state1);
+		LEDS_DEBUG
+		    ("Cannot find hall pinctrl button_backlights_output1!\n");
+		return ret;
+	}
+
+	button_backlight_ready = true;
+	return 0;
+}
+
+int button_backlights_enable_output(int level)
+{
+	if (!button_backlight_ready)
+		return -1;
+
+	if (level)
+		pinctrl_select_state(button_backlight_pinctrl,
+				     button_backlight_state1);
+	else
+		pinctrl_select_state(button_backlight_pinctrl,
+				     button_backlight_state0);
+
+	return 0;
+}
+
 struct cust_mt65xx_led *get_cust_led_dtsi(void)
 {
 	struct device_node *led_node = NULL;
@@ -315,6 +385,14 @@ struct cust_mt65xx_led *get_cust_led_dtsi(void)
 					    ("led dts can not get pwm config data.\n");
 
 				switch (pled_dtsi[i].mode) {
+				case MT65XX_LED_MODE_GPIO:
+					LEDS_DEBUG
+					    ("lizhiye MT65XX_LED_MODE_GPIO button_backlight_level\n");
+					pled_dtsi[i].data =
+					    (long)button_backlights_enable_output;
+					LEDS_DEBUG
+					    ("kernel:lizhiye the button backlight hw mode is LCM.\n");
+					break;
 				case MT65XX_LED_MODE_CUST_LCM:
 #if defined(CONFIG_BACKLIGHT_SUPPORT_LM3697)
 					pled_dtsi[i].data =

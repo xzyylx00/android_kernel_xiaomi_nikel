@@ -641,6 +641,12 @@ static int mt65xx_leds_probe(struct platform_device *pdev)
 	#endif
 	LEDS_DRV_DEBUG("%s\n", __func__);
 	get_div_array();
+	/* official: button-backlight pinctrl states (output0/output1);
+	 * non-fatal if absent — button_backlights_enable_output() then no-ops */
+	ret = button_backlight_pinctrl_init(&pdev->dev);
+	if (ret)
+		LEDS_DRV_DEBUG("button_backlight pinctrl init failed: %d\n",
+			       ret);
 	for (i = 0; i < MT65XX_LED_TYPE_TOTAL; i++) {
 		if (cust_led_list[i].mode == MT65XX_LED_MODE_NONE) {
 			g_leds_data[i] = NULL;

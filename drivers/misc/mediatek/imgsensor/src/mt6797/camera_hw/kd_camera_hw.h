@@ -52,25 +52,28 @@ typedef enum {
 	Vol_1800 = VOL1800,
 	Vol_2800 = VOL2800,
 } Voltage;
-#define CAMERA_CMRST_PIN            0
+#define CAMERA_CMRST_PIN            32
 #define CAMERA_CMRST_PIN_M_GPIO     0
 
-#define CAMERA_CMPDN_PIN            0
+#define CAMERA_CMPDN_PIN            28
 #define CAMERA_CMPDN_PIN_M_GPIO     0
 
 /* FRONT sensor */
-#define CAMERA_CMRST1_PIN           0
+#define CAMERA_CMRST1_PIN           33
 #define CAMERA_CMRST1_PIN_M_GPIO    0
 
-#define CAMERA_CMPDN1_PIN           0
+#define CAMERA_CMPDN1_PIN           29
 #define CAMERA_CMPDN1_PIN_M_GPIO    0
 
 /* Main2 sensor */
-#define CAMERA_CMRST2_PIN           0
+#define CAMERA_CMRST2_PIN           35
 #define CAMERA_CMRST2_PIN_M_GPIO    0
 
-#define CAMERA_CMPDN2_PIN           0
+#define CAMERA_CMPDN2_PIN           34
 #define CAMERA_CMPDN2_PIN_M_GPIO    0
+
+/* External camera AVDD LDO enable (pinctrl state cam_ldo_vcama_x) */
+#define CAMERA_VCAMA_EN_PIN         253
 
 
 #define GPIO_OUT_ONE 1

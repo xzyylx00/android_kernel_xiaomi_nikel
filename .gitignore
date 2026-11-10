@@ -1,0 +1,23 @@
+# build output
+/out/
+
+# local toolchain
+/gcc/
+
+# local logs and captures
+*.log
+/boot_logs/
+/boot_logs_backup/
+/bootable_images/
+
+# local helper scripts and device tools
+/adbenv
+/pack_boot.py
+/cam_*.sh
+/v*_capture.sh
+/tools/nkd
+/tools/nkd.c
+/tools/start.S
+
+# prebuilt blobs kept for reference only
+/blob/

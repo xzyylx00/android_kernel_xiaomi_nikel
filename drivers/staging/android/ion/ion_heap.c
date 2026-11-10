@@ -354,6 +354,7 @@ struct ion_heap *ion_heap_create(struct ion_platform_heap *heap_data)
 		heap = ion_chunk_heap_create(heap_data);
 		break;
 	case ION_HEAP_TYPE_MULTIMEDIA:
+	case ION_HEAP_TYPE_MULTIMEDIA_FOR_CAMERA:
 		heap = ion_mm_heap_create(heap_data);
 		break;
 	case ION_HEAP_TYPE_FB:
@@ -399,6 +400,7 @@ void ion_heap_destroy(struct ion_heap *heap)
 		ion_chunk_heap_destroy(heap);
 		break;
 	case ION_HEAP_TYPE_MULTIMEDIA:
+	case ION_HEAP_TYPE_MULTIMEDIA_FOR_CAMERA:
 		ion_mm_heap_destroy(heap);
 		break;
 	case ION_HEAP_TYPE_FB:

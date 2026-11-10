@@ -84,7 +84,7 @@
 #define spm_alert(fmt, args...)		pr_alert(IDLE_TAG fmt, ##args)
 #define spm_crit(fmt, args...)		pr_crit(IDLE_TAG fmt, ##args)
 #define idle_err(fmt, args...)		pr_err(IDLE_TAG fmt, ##args)
-#define idle_warn(fmt, args...)		pr_warn(IDLE_TAG fmt, ##args)
+#define idle_warn(fmt, args...)		pr_debug(IDLE_TAG fmt, ##args)
 #define spm_notice(fmt, args...)	pr_notice(IDLE_TAG fmt, ##args)
 #define idle_info(fmt, args...)		pr_debug(IDLE_TAG fmt, ##args)
 #define idle_ver(fmt, args...)		pr_debug(IDLE_TAG fmt, ##args)

@@ -386,9 +386,9 @@
 		reg = <0x77>;
 		status = "okay";
 	};
-	alsps@51 {
+	alsps@53 {
 		compatible = "mediatek,alsps";
-		reg = <0x51>;
+		reg = <0x53>;
 		status = "okay";
 	};
 	humidity@5f {
