@@ -1,0 +1,7 @@
+config MTK_YAS537
+	bool "YAS537 for Mediatek package"
+	default n
+	help
+	  It supports the Yamaha YAS537 magnetometer.
+	  If this option is set, the kernel will build the YAS537
+	  magnetometer driver used on MT6797 devices.

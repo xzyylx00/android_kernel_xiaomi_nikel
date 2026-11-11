@@ -1,0 +1,7 @@
+config MTK_BMI160_GYRO
+	bool "MTK_BMI160 gyroscope for MediaTek package"
+	default n
+	help
+	  Support the gyroscope half of the Bosch BMI160 IMU used on
+	  some MediaTek boards.  The accelerometer half is provided by
+	  MTK_BMI160_ACC; both share the same i2c client.

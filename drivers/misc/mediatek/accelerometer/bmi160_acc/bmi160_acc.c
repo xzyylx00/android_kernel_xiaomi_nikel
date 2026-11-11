@@ -77,6 +77,13 @@ struct err_status {
 	u8 mag_drdy_err;
 	u8 err_st_all;
 };
+
+#define BMI_RING_SIZE	100
+struct bmi_ring_entry {
+	s16 data[6];
+	u64 ts;
+};
+
 struct bmi160_acc_i2c_data {
 	struct i2c_client *client;
 	struct acc_hw *hw;
@@ -110,6 +117,13 @@ struct bmi160_acc_i2c_data {
 	struct err_status err_st;
 	u8 selftest;
 	atomic_t selftest_result;
+	/* FIFO samples consumed by the Bosch sensor HAL */
+	struct bmi_ring_entry ring[BMI_RING_SIZE];
+	int ring_head;
+	int ring_tail;
+	struct mutex ring_lock;
+	struct delayed_work ring_work;
+	atomic_t ring_on;
 	/*early suspend*/
 	#if defined(CONFIG_HAS_EARLYSUSPEND)
 	struct early_suspend    early_drv;
@@ -135,6 +149,9 @@ static struct acc_init_info bmi160_acc_init_info;
 static struct bmi160_acc_i2c_data *obj_i2c_data;
 static bool sensor_power = true;
 static struct GSENSOR_VECTOR3D gsensor_gain;
+
+static void bmi160_ring_start(struct bmi160_acc_i2c_data *obj);
+static void bmi160_ring_stop(struct bmi160_acc_i2c_data *obj);
 
 /* 0=ok, -1=fail */
 static int bmi160_acc_init_flag = -1;
@@ -1965,6 +1982,12 @@ struct device_driver *ddri, const char *buf, size_t count)
 		GSE_ERR("set acc op mode = %d failed.\n", (int)data);
 		return err;
 	}
+
+	if (data == BMI160_ACC_MODE_NORMAL)
+		bmi160_ring_start(obj_i2c_data);
+	else
+		bmi160_ring_stop(obj_i2c_data);
+
 	return count;
 }
 
@@ -2470,6 +2493,12 @@ struct device_driver *ddri, const char *buf, size_t count)
 	GSE_LOG("fifo_data_sel %d, A_en:%d, G_en:%d, M_en:%d\n",
 	client_data->fifo_data_sel,
 	fifo_acc_en, fifo_gyro_en, fifo_mag_en);
+
+	if (client_data->fifo_data_sel)
+		bmi160_ring_start(client_data);
+	else
+		bmi160_ring_stop(client_data);
+
 	return count;
 }
 
@@ -2623,6 +2652,110 @@ static ssize_t bmi160_bmi_value_show(struct device_driver *ddri, char *buf)
 			(s16)(raw_data[7] << 8 | raw_data[6]),
 			(s16)(raw_data[9] << 8 | raw_data[8]),
 			(s16)(raw_data[11] << 8 | raw_data[10]));
+}
+
+/*
+ * The Bosch HAL reads accelerometer and gyroscope samples from this ring
+ * buffer instead of consuming the individual input devices.  Each entry is
+ * remapped into the board frame.  The vendor HAL expects the fixed FIFO
+ * sample timestamp of 4970000 ns, not a wall-clock timestamp.
+ */
+static void bmi160_ring_push(struct bmi160_acc_i2c_data *obj)
+{
+	u8 raw[12];
+	s16 gyro[3], acc[3];
+	struct bmi_ring_entry *e;
+	int i, next;
+
+	if (!obj || !bmi160_acc_i2c_client)
+		return;
+
+	if (bma_i2c_read_block(bmi160_acc_i2c_client,
+			       BMI160_USER_DATA_8_GYRO_X_LSB__REG, raw,
+			       sizeof(raw)))
+		return;
+
+	for (i = 0; i < 3; i++) {
+		gyro[i] = (s16)((raw[i * 2 + 1] << 8) | raw[i * 2]);
+		acc[i] = (s16)((raw[6 + i * 2 + 1] << 8) | raw[6 + i * 2]);
+	}
+
+	mutex_lock(&obj->ring_lock);
+	next = (obj->ring_tail + 1) % BMI_RING_SIZE;
+	if (next == obj->ring_head)
+		obj->ring_head = (obj->ring_head + 1) % BMI_RING_SIZE;
+
+	e = &obj->ring[obj->ring_tail];
+	for (i = 0; i < 3; i++) {
+		e->data[obj->cvt.map[i]] =
+			obj->cvt.sign[i] * acc[i];
+		e->data[3 + obj->cvt.map[i]] =
+			obj->cvt.sign[i] * gyro[i];
+	}
+	/* The Bosch HAL expects the vendor FIFO sample timestamp. */
+	e->ts = 4970000ULL;
+	obj->ring_tail = next;
+	mutex_unlock(&obj->ring_lock);
+}
+
+static ssize_t bmi160_ring_buf_show(struct device_driver *ddri, char *buf)
+{
+	struct bmi160_acc_i2c_data *obj = obj_i2c_data;
+	struct bmi_ring_entry *e;
+	int len = 0;
+	int n;
+
+	if (!obj)
+		return 0;
+
+	mutex_lock(&obj->ring_lock);
+	while (obj->ring_head != obj->ring_tail) {
+		if (len > PAGE_SIZE - 128)
+			break;
+		e = &obj->ring[obj->ring_head];
+		n = snprintf(buf + len, PAGE_SIZE - len,
+			     "%d %d %d %d %d %d %lld ",
+			     e->data[0], e->data[1], e->data[2],
+			     e->data[3], e->data[4], e->data[5],
+			     (long long)e->ts);
+		if (n <= 0)
+			break;
+		len += n;
+		obj->ring_head = (obj->ring_head + 1) % BMI_RING_SIZE;
+	}
+	mutex_unlock(&obj->ring_lock);
+
+	return len;
+}
+
+static void bmi160_ring_work_func(struct work_struct *work)
+{
+	struct bmi160_acc_i2c_data *obj =
+		container_of(work, struct bmi160_acc_i2c_data,
+			     ring_work.work);
+
+	if (!atomic_read(&obj->ring_on))
+		return;
+
+	bmi160_ring_push(obj);
+	schedule_delayed_work(&obj->ring_work, msecs_to_jiffies(5));
+}
+
+static void bmi160_ring_start(struct bmi160_acc_i2c_data *obj)
+{
+	if (!obj)
+		return;
+	if (atomic_xchg(&obj->ring_on, 1))
+		return;
+	schedule_delayed_work(&obj->ring_work, 0);
+}
+
+static void bmi160_ring_stop(struct bmi160_acc_i2c_data *obj)
+{
+	if (!obj)
+		return;
+	atomic_set(&obj->ring_on, 0);
+	cancel_delayed_work_sync(&obj->ring_work);
 }
 
 static int bmi160_get_fifo_wm(u8 *v_fifo_wm_u8)
@@ -3093,6 +3226,7 @@ show_layout_value, store_layout_value);
 static DRIVER_ATTR(register, S_IRUGO|S_IWUSR,
 bmi_register_show, bmi_register_store);
 static DRIVER_ATTR(bmi_value, S_IRUGO, bmi160_bmi_value_show, NULL);
+static DRIVER_ATTR(bmi_ring_buf, S_IRUGO, bmi160_ring_buf_show, NULL);
 static DRIVER_ATTR(fifo_watermark, S_IRUGO|S_IWUSR,
 bmi160_fifo_watermark_show, bmi160_fifo_watermark_store);
 static DRIVER_ATTR(delay, S_IRUGO|S_IWUSR,
@@ -3138,6 +3272,7 @@ static struct driver_attribute *bmi160_acc_attr_list[] = {
 	&driver_attr_layout,
 	&driver_attr_register,
 	&driver_attr_bmi_value,
+	&driver_attr_bmi_ring_buf,
 	&driver_attr_fifo_watermark,
 	&driver_attr_delay,
 	&driver_attr_fifo_flush,
@@ -3574,6 +3709,9 @@ static int bmi160_acc_i2c_probe(
 	atomic_set(&obj->trace, 0);
 	atomic_set(&obj->suspend, 0);
 	mutex_init(&obj->lock);
+	mutex_init(&obj->ring_lock);
+	INIT_DELAYED_WORK(&obj->ring_work, bmi160_ring_work_func);
+	atomic_set(&obj->ring_on, 0);
 	/* h/w init */
 	obj->device.bus_read = bmi_i2c_read_wrapper;
 	obj->device.bus_write = bmi_i2c_write_wrapper;

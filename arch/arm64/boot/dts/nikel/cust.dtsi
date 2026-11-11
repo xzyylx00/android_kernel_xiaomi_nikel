@@ -366,9 +366,9 @@
 	#size-cells = <0>;
 	clock-frequency = <400000>;
 	mediatek,use-open-drain;
-	msensor@0c {
+	msensor@2e {
 		compatible = "mediatek,msensor";
-		reg = <0x0c>;
+		reg = <0x2e>;
 		status = "okay";
 	};
 	gyro@69 {

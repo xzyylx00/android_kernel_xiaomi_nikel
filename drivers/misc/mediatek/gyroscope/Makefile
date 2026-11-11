@@ -20,4 +20,5 @@ obj-$(CONFIG_MTK_L3GD20)   +=  l3gd20/
 obj-$(CONFIG_MTK_LSM6DS0G)   +=  lsm6ds0gy/
 obj-$(CONFIG_MTK_LSM6DS3)   +=  lsm6ds3gy/
 obj-$(CONFIG_MTK_ICM20645GY)   +=  icm20645gy/
+obj-$(CONFIG_MTK_BMI160_GYRO)  +=  bmi120gy-new/
 endif

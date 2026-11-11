@@ -359,6 +359,9 @@ static ssize_t mag_store_odelay(struct device *dev, struct device_attribute *att
 
 	if (false == cxt->mag_ctl.is_report_input_direct) {
 		mdelay = (int)delay/1000/1000;
+		/* A zero period makes the polling loop spin forever. */
+		if (mdelay < 1)
+			mdelay = 1;
 		atomic_set(&mag_context_obj->delay, mdelay);
 	}
 
@@ -405,6 +408,9 @@ static ssize_t mag_store_delay(struct device *dev, struct device_attribute *attr
 	if (false == cxt->mag_ctl.is_report_input_direct) {
 		mdelay = delay;
 		do_div(mdelay, 1000000);
+		/* A zero period makes the polling loop spin forever. */
+		if (mdelay < 1)
+			mdelay = 1;
 		atomic_set(&mag_context_obj->delay, mdelay);
 	}
 	cxt->mag_ctl.m_set_delay(delay);
@@ -590,6 +596,76 @@ int mag_attach(int sensor, struct mag_drv_obj *obj)
 EXPORT_SYMBOL_GPL(mag_attach);
 
 
+/*
+ * Driver attributes expected by the Bosch sensor HAL.  The HAL reads the
+ * magnetometer through
+ *
+ *     /sys/bus/platform/drivers/msensor/rawdata
+ *
+ * instead of consuming the input device, and uses the daemon name to
+ * select its calibration path.  Keep the same layout as the vendor
+ * kernel: "daemon", "rawdata" and "op_mode" on the msensor driver.
+ */
+static ssize_t mag_drv_show_daemon(struct device_driver *drv, char *buf)
+{
+	return sprintf(buf, "yamaha537\n");
+}
+
+static ssize_t mag_drv_show_rawdata(struct device_driver *drv, char *buf)
+{
+	struct mag_context *cxt = mag_context_obj;
+	int x = 0, y = 0, z = 0, status = 0;
+
+	if (!cxt || !cxt->mag_dev_data.get_data_m)
+		return -ENODEV;
+
+	if (cxt->mag_dev_data.get_data_m(&x, &y, &z, &status))
+		return -EIO;
+
+	return sprintf(buf, "%d %d %d\n", x, y, z);
+}
+
+static ssize_t mag_drv_show_op_mode(struct device_driver *drv, char *buf)
+{
+	struct mag_context *cxt = mag_context_obj;
+
+	if (!cxt || !cxt->mag_dev_data.get_data_m)
+		return -ENODEV;
+
+	/* The vendor driver only distinguishes enabled (1) from disabled. */
+	return sprintf(buf, "%d\n", cxt->active_data_sensor ? 1 : 0);
+}
+
+static ssize_t mag_drv_store_op_mode(struct device_driver *drv,
+				     const char *buf, size_t count)
+{
+	struct mag_context *cxt = mag_context_obj;
+	int val;
+	int ret;
+
+	ret = kstrtoint(buf, 10, &val);
+	if (ret)
+		return ret;
+
+	if (!cxt || !cxt->mag_ctl.m_enable)
+		return -ENODEV;
+
+	/*
+	 * The HAL writes 1 once before polling rawdata, which is what starts
+	 * the chip when the framework has not enabled the magnetic sensor.
+	 */
+	ret = cxt->mag_ctl.m_enable(val ? 1 : 0);
+	if (ret)
+		return ret;
+
+	return count;
+}
+
+static DRIVER_ATTR(daemon, S_IRUGO, mag_drv_show_daemon, NULL);
+static DRIVER_ATTR(rawdata, S_IRUGO, mag_drv_show_rawdata, NULL);
+static DRIVER_ATTR(op_mode, S_IWUSR | S_IRUGO,
+		   mag_drv_show_op_mode, mag_drv_store_op_mode);
+
 static int msensor_remove(struct platform_device *pdev)
 {
 	MAG_LOG("msensor_remove\n");
@@ -662,6 +738,22 @@ int mag_driver_add(struct mag_init_info *obj)
 			MAG_LOG("register mensor driver for the first time\n");
 			if (platform_driver_register(&msensor_driver))
 				MAG_ERR("failed to register msensor driver already exist\n");
+			else {
+				int ret;
+
+				ret = driver_create_file(&msensor_driver.driver,
+							 &driver_attr_daemon);
+				if (ret)
+					MAG_ERR("create daemon attr failed: %d\n", ret);
+				ret = driver_create_file(&msensor_driver.driver,
+							 &driver_attr_rawdata);
+				if (ret)
+					MAG_ERR("create rawdata attr failed: %d\n", ret);
+				ret = driver_create_file(&msensor_driver.driver,
+							 &driver_attr_op_mode);
+				if (ret)
+					MAG_ERR("create op_mode attr failed: %d\n", ret);
+			}
 		}
 		if (NULL == msensor_init_list[i]) {
 			obj->platform_diver_addr = &msensor_driver;

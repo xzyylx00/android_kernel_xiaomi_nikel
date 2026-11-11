@@ -242,6 +242,29 @@ static int gyro_enable_data(int enable)
 	return 0;
 }
 
+/*
+ * Helpers used by drivers whose enable attributes are written directly by
+ * the HAL (the BOSCH HAL configures the gyroscope through the driver
+ * attributes rather than through the misc device).
+ */
+int gyro_set_data_active(int enable)
+{
+	if (!gyro_context_obj)
+		return -ENODEV;
+
+	return gyro_enable_data(enable);
+}
+EXPORT_SYMBOL_GPL(gyro_set_data_active);
+
+void gyro_set_poll_delay(unsigned int delay_ms)
+{
+	if (!gyro_context_obj)
+		return;
+
+	atomic_set(&gyro_context_obj->delay, delay_ms ? delay_ms : 1);
+}
+EXPORT_SYMBOL_GPL(gyro_set_poll_delay);
+
 int gyro_enable_nodata(int enable)
 {
 	struct gyro_context *cxt = NULL;
