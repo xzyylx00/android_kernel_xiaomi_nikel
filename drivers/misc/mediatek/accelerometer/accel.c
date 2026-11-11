@@ -248,7 +248,18 @@ static int acc_enable_data(int enable)
 	return 0;
 }
 
-
+/*
+ * Legacy sensor HALs enable the accelerometer stream by writing to the
+ * "acc_event_mode" driver attribute instead of the m_acc_misc/accactive
+ * misc attribute. Route that request through the same enable path so the
+ * framework timer starts reporting input events.
+ */
+int acc_event_mode_enable(int enable)
+{
+	ACC_LOG("acc_event_mode_enable %d\n", enable);
+	return acc_enable_data(enable);
+}
+EXPORT_SYMBOL_GPL(acc_event_mode_enable);
 
 int acc_enable_nodata(int enable)
 {
@@ -569,20 +580,20 @@ static int acc_input_init(struct acc_context *cxt)
 	if (NULL == dev)
 		return -ENOMEM;
 
-	dev->name = ACC_INPUTDEV_NAME;
+	/*
+	 * The prebuilt BOSCH sensor HAL (sensors.mt6797.so) locates the
+	 * accelerometer input device by matching the name "bmi160_acc"
+	 * in the input device name sysfs attribute.
+	 */
+	dev->name = "bmi160_acc";
 
 	input_set_capability(dev, EV_ABS, EVENT_TYPE_ACCEL_X);
 	input_set_capability(dev, EV_ABS, EVENT_TYPE_ACCEL_Y);
 	input_set_capability(dev, EV_ABS, EVENT_TYPE_ACCEL_Z);
-	input_set_capability(dev, EV_ABS, EVENT_TYPE_ACCEL_STATUS);
-	input_set_capability(dev, EV_REL, EVENT_TYPE_ACCEL_UPDATE);
-	input_set_capability(dev, EV_REL, EVENT_TYPE_ACCEL_TIMESTAMP_HI);
-	input_set_capability(dev, EV_REL, EVENT_TYPE_ACCEL_TIMESTAMP_LO);
 
 	input_set_abs_params(dev, EVENT_TYPE_ACCEL_X, ACC_VALUE_MIN, ACC_VALUE_MAX, 0, 0);
 	input_set_abs_params(dev, EVENT_TYPE_ACCEL_Y, ACC_VALUE_MIN, ACC_VALUE_MAX, 0, 0);
 	input_set_abs_params(dev, EVENT_TYPE_ACCEL_Z, ACC_VALUE_MIN, ACC_VALUE_MAX, 0, 0);
-	input_set_abs_params(dev, EVENT_TYPE_ACCEL_STATUS, ACC_STATUS_MIN, ACC_STATUS_MAX, 0, 0);
 	input_set_drvdata(dev, cxt);
 
 	err = input_register_device(dev);

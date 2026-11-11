@@ -20,6 +20,14 @@ config INPUT_HALL_COVER
 	  reporting power button status.
 	  To compile this driver as a module, choose M here: the module
 	  will be called HALL_COVER.
+config INPUT_HALL_AH1903
+	bool "AH1903 hall sensor support"
+	depends on OF
+	default n
+	help
+	  Support the AH1903 hall sensor found on some MediaTek devices.
+	  It reports the magnetic cover state through SW_LID and exposes
+	  /proc/check_hall_exist.
 config INPUT_88PM860X_ONKEY
 	tristate "88PM860x ONKEY support"
 	depends on MFD_88PM860X

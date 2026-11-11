@@ -29,4 +29,5 @@ obj-$(CONFIG_MTK_BMA056)   +=  bma056/
 obj-$(CONFIG_MTK_LSM6DS3)   +=  lsm6ds3/
 obj-$(CONFIG_MTK_LSM6DS0A)   +=  lsm6ds0/
 obj-$(CONFIG_MTK_ICM20645G)   +=  icm20645g/
+obj-$(CONFIG_MTK_BMI160_ACC)   +=  bmi160_acc/
 endif

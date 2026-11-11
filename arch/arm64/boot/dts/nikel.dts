@@ -233,7 +233,7 @@
 	};
 /* sensor standardization */
 	cust_accel@0 {
-		compatible				= "mediatek,icm20645g";
+		compatible				= "mediatek,bmi160_acc";
 		i2c_num					= <1>;
 		i2c_addr				= <0x68 0 0 0>;
 		direction				= <3>;
@@ -241,6 +241,23 @@
 		power_vol				= <0>;
 		firlen					= <0>;
 		is_batch_supported		= <0>;
+	};
+
+	hall@0 {
+		compatible = "mediatek,hall";
+		interrupt-parent = <&eintc>;
+		interrupts = <91 4>;
+		debounce = <91 0x7d00>;
+		status = "okay";
+		pinctrl-names = "default", "h_eint_int", "h_eint_output0",
+				"h_eint_output1", "h_select_output0",
+				"h_select_output1";
+		pinctrl-0 = <&hall_eint0_default>;
+		pinctrl-1 = <&hall_eint_int>;
+		pinctrl-2 = <&hall_eint_output0>;
+		pinctrl-3 = <&hall_eint_output1>;
+		pinctrl-4 = <&hall_select_output0>;
+		pinctrl-5 = <&hall_select_output1>;
 	};
 
 	cust_alsps@0 {
@@ -328,6 +345,49 @@
 
 	gyro_intpin_default: gyrodefaultcfg {
 
+	};
+
+	hall_eint0_default: hall_eint0_default {
+	};
+
+	hall_eint_int: hall_eint@0 {
+		pins_cmd_dat {
+			pins = <PINMUX_GPIO91__FUNC_EINT14>;
+			slew-rate = <0>;
+			bias-disable;
+		};
+	};
+
+	hall_eint_output0: hall_eint_output0 {
+		pins_cmd_dat {
+			pins = <PINMUX_GPIO91__FUNC_GPIO91>;
+			slew-rate = <1>;
+			output-low;
+		};
+	};
+
+	hall_eint_output1: hall_eint_output1 {
+		pins_cmd_dat {
+			pins = <PINMUX_GPIO91__FUNC_GPIO91>;
+			slew-rate = <1>;
+			output-high;
+		};
+	};
+
+	hall_select_output0: hall_select_output0 {
+		pins_cmd_dat {
+			pins = <PINMUX_GPIO90__FUNC_GPIO90>;
+			slew-rate = <1>;
+			output-low;
+		};
+	};
+
+	hall_select_output1: hall_select_output1 {
+		pins_cmd_dat {
+			pins = <PINMUX_GPIO90__FUNC_GPIO90>;
+			slew-rate = <1>;
+			output-high;
+		};
 	};
 };
 &als {

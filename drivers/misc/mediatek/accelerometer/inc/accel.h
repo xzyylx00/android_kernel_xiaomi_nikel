@@ -127,6 +127,7 @@ struct acc_context {
 /* for auto detect */
 extern int acc_driver_add(struct acc_init_info *obj);
 extern int acc_data_report(int x, int y, int z, int status, int64_t nt);
+extern int acc_event_mode_enable(int enable);
 extern int acc_register_control_path(struct acc_control_path *ctl);
 extern int acc_register_data_path(struct acc_data_path *data);
 
