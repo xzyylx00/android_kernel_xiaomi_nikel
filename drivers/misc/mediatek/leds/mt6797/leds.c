@@ -35,11 +35,15 @@
 
 #include <mt-plat/mt_pwm.h>
 #include <mt-plat/upmu_common.h>
+#include <mt-plat/mt_gpio.h>
 
 #include "leds_sw.h"
 #include "leds_hal.h"
 #include "ddp_pwm.h"
 #include "mtkfb.h"
+
+/* Provided by the camera flashlight driver (constant_flashlight). */
+extern void flashlight_onoff(int level);
 
 #define MET_USER_EVENT_SUPPORT
 #include <mt-plat/met_drv.h>
@@ -129,6 +133,7 @@ char *leds_name[MT65XX_LED_TYPE_TOTAL] = {
 	"keyboard-backlight",
 	"button-backlight",
 	"lcd-backlight",
+	"flashlight",
 };
 
 struct cust_mt65xx_led *pled_dtsi = NULL;
@@ -246,9 +251,13 @@ int button_backlight_pinctrl_init(struct device *dev)
 	button_backlight_state_default =
 	    pinctrl_lookup_state(button_backlight_pinctrl, "default");
 	if (IS_ERR(button_backlight_state_default)) {
-		ret = PTR_ERR(button_backlight_state_default);
+		/*
+		 * An empty pinctrl-0 node does not create a state, so this
+		 * lookup may legitimately fail.  The default state is never
+		 * used: only output0/output1 matter.
+		 */
 		LEDS_DEBUG("Cannot find hall pinctrl default!\n");
-		return ret;
+		button_backlight_state_default = NULL;
 	}
 
 	button_backlight_state0 =
@@ -275,19 +284,32 @@ int button_backlight_pinctrl_init(struct device *dev)
 	return 0;
 }
 
+#define BUTTON_BACKLIGHT_GPIO 252
+
 int button_backlights_enable_output(int level)
 {
-	if (!button_backlight_ready)
-		return -1;
+	int ret;
 
-	if (level)
-		pinctrl_select_state(button_backlight_pinctrl,
-				     button_backlight_state1);
-	else
-		pinctrl_select_state(button_backlight_pinctrl,
-				     button_backlight_state0);
+	/*
+	 * GPIO252 is also listed as fusb340_sel in the reference USB-C
+	 * pinctrl block.  nikel has no fusb340, but soc:usb_c_pinctrl@0
+	 * claims the pin at boot, so pinctrl_select_state() on our
+	 * button_backlight_output* states fails with -EINVAL and the keys
+	 * never light up.  Drive the pin directly instead; this is the
+	 * sequence that was verified on the device with the mtgpio sysfs
+	 * interface (output-high == backlight on).
+	 */
+	ret = mt_set_gpio_mode(BUTTON_BACKLIGHT_GPIO | 0x80000000, 0);
+	if (!ret)
+		ret = mt_set_gpio_dir(BUTTON_BACKLIGHT_GPIO | 0x80000000, 1);
+	if (!ret)
+		ret = mt_set_gpio_out(BUTTON_BACKLIGHT_GPIO | 0x80000000,
+				      level ? 1 : 0);
 
-	return 0;
+	if (ret)
+		LEDS_DEBUG("button_backlight gpio set failed: %d\n", ret);
+
+	return ret ? -1 : 0;
 }
 
 struct cust_mt65xx_led *get_cust_led_dtsi(void)
@@ -1285,6 +1307,19 @@ int mt_mt65xx_led_set_cust(struct cust_mt65xx_led *cust, int level)
 			output_met_backlight_tag(level);
 
 		return ((cust_set_brightness) (cust->data)) (level);
+
+	case MT65XX_LED_MODE_FLASHLIGHT:
+		/*
+		 * The stock /sys/class/leds/flashlight node is what the MIUI
+		 * torch and the CIT flashlight test use.  level is 0 for off
+		 * and non-zero for on; hand it to the camera flashlight
+		 * driver, which owns the LM3643.
+		 */
+		if (strcmp(cust->name, "flashlight") == 0) {
+			flashlight_onoff(level);
+			return 1;
+		}
+		break;
 
 	case MT65XX_LED_MODE_NONE:
 	default:

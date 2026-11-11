@@ -61,6 +61,7 @@ struct ltr579_priv {
 	u32 als_level[C_CUST_ALS_LEVEL - 1];
 	u32 als_value[C_CUST_ALS_LEVEL];
 	int ps_cali;
+	int ps_baseline;
 
 	atomic_t ps_thd_val_high;
 	atomic_t ps_thd_val_low;
@@ -161,6 +162,8 @@ static int ltr579_ps_set_thres(struct i2c_client *client)
 	return ret;
 }
 
+static int ltr579_ps_calibrate(struct i2c_client *client);
+
 static int ltr579_ps_enable(struct i2c_client *client, int enable)
 {
 	struct ltr579_priv *obj = i2c_get_clientdata(client);
@@ -177,24 +180,44 @@ static int ltr579_ps_enable(struct i2c_client *client, int enable)
 		ret = ltr579_i2c_write_reg(client, LTR579_REG_PS_CONF, 0x5C);
 		if (ret < 0)
 			return ret;
-		ret = ltr579_ps_set_thres(client);
-		if (ret < 0)
-			return ret;
-		ret = ltr579_i2c_write_reg(client, LTR579_REG_PS_OFFSET_L, 0x01);
-		if (ret < 0)
-			return ret;
-		ret = ltr579_i2c_write_reg(client, LTR579_REG_PS_OFFSET_H, 0x02);
-		if (ret < 0)
-			return ret;
 
-		msleep(100);
+		if (!obj->ps_cali) {
+			ret = ltr579_ps_set_thres(client);
+			if (ret < 0)
+				return ret;
+			ret = ltr579_i2c_write_reg(client,
+						   LTR579_REG_PS_OFFSET_L, 0x01);
+			if (ret < 0)
+				return ret;
+			ret = ltr579_i2c_write_reg(client,
+						   LTR579_REG_PS_OFFSET_H, 0x02);
+			if (ret < 0)
+				return ret;
+			msleep(100);
+		}
 
 		val = ltr579_i2c_read_reg(client, LTR579_REG_CONTR);
 		if (val < 0)
 			return val;
-		ret = ltr579_i2c_write_reg(client, LTR579_REG_CONTR, val | 0x01);
-		if (ret < 0)
-			return ret;
+		if (!(val & 0x01)) {
+			ret = ltr579_i2c_write_reg(client, LTR579_REG_CONTR,
+						   val | 0x01);
+			if (ret < 0)
+				return ret;
+		}
+
+		/*
+		 * The LTR579 baseline varies from unit to unit (and with the
+		 * glass/dust on top), so the DTS thresholds are only a
+		 * starting point.  The official driver measures the ambient
+		 * PS level every time proximity is enabled and derives the
+		 * near/far thresholds from it.
+		 */
+		if (!obj->ps_cali) {
+			ret = ltr579_ps_calibrate(client);
+			if (ret < 0)
+				return ret;
+		}
 
 		atomic_set(&obj->ps_deb_on, 1);
 		atomic_set(&obj->ps_deb_end,
@@ -206,6 +229,7 @@ static int ltr579_ps_enable(struct i2c_client *client, int enable)
 		ret = ltr579_i2c_write_reg(client, LTR579_REG_CONTR, val & 0xFE);
 		if (ret < 0)
 			return ret;
+		obj->ps_cali = 0;	/* recalibrate on the next enable */
 		atomic_set(&obj->ps_deb_on, 0);
 	}
 
@@ -260,6 +284,74 @@ static int ltr579_ps_read(struct i2c_client *client, u16 *ps)
 
 	*ps = (lo & 0xFF) | ((hi & 0x07) << 8);
 	return 0;
+}
+
+/*
+ * Measure the ambient PS level and derive the near/far thresholds the same
+ * way the official driver does: take a few samples, then put the HIGH
+ * threshold 91 counts and the LOW threshold 35 counts above the baseline.
+ *
+ * The official driver averages the samples, but that makes the thresholds
+ * useless if the user happens to have a finger over the sensor while
+ * proximity is being enabled: the "ambient" baseline then looks like a
+ * near reading, the near threshold ends up unreachable and proximity never
+ * reports again (which is what made the CIT test show a single value).
+ * Use the minimum of the samples instead, retry a few times, and never
+ * fall back to a threshold pair that is out of reach.
+ */
+static int ltr579_ps_calibrate(struct i2c_client *client)
+{
+	struct ltr579_priv *obj = i2c_get_clientdata(client);
+	int i, ret, attempt;
+	int baseline = 0, high, low;
+	u16 ps;
+	int ok = 0;
+
+	for (attempt = 0; attempt < 3 && !ok; attempt++) {
+		int min = -1;
+
+		for (i = 0; i < 5; i++) {
+			msleep(20);
+			ret = ltr579_ps_read(client, &ps);
+			if (ret < 0)
+				continue;
+			if (min < 0 || ps < min)
+				min = ps;
+		}
+
+		/* 10 is the noise floor; anything near the full scale means
+		 * something is still covering the sensor, try again.
+		 */
+		if (min > 10 && min < 250) {
+			baseline = min;
+			ok = true;
+		} else {
+			msleep(100);
+		}
+	}
+
+	if (ok) {
+		obj->ps_baseline = baseline;
+		obj->ps_cali = 1;
+	} else {
+		/* Keep the last known good baseline if we have one. */
+		obj->ps_cali = 0;
+		baseline = obj->ps_baseline ? obj->ps_baseline : 100;
+	}
+
+	high = baseline + 91;
+	low = baseline + 35;
+	if (high > 1000)
+		high = 1000;
+	if (low > 900)
+		low = 900;
+
+	atomic_set(&obj->ps_thd_val_high, high);
+	atomic_set(&obj->ps_thd_val_low, low);
+	LTR579_LOG("ps calibrate baseline=%d high=%d low=%d cali=%d ok=%d\n",
+		   baseline, high, low, obj->ps_cali, ok);
+
+	return ltr579_ps_set_thres(client);
 }
 
 /*
@@ -496,6 +588,26 @@ static int als_get_data(int *value, int *status)
 	return 0;
 }
 
+static int als_get_raw_data(int *value)
+{
+	struct ltr579_priv *obj = ltr579_obj;
+	u32 lux;
+	int err;
+
+	if (!obj)
+		return -1;
+
+	err = ltr579_als_read(obj->client, &lux);
+	if (err) {
+		*value = 0;
+		return -1;
+	}
+
+	obj->als = (u16)lux;
+	*value = (int)lux;
+	return 0;
+}
+
 static int ps_open_report_data(int open)
 {
 	return 0;
@@ -545,6 +657,103 @@ static int ps_get_data(int *value, int *status)
 	*value = ltr579_get_ps_value(obj);
 	*status = SENSOR_STATUS_ACCURACY_MEDIUM;
 
+	return 0;
+}
+
+/*
+ * Raw PS count, used by the ALSPS factory interface (CIT).  Its proximity
+ * calibration step reads this value and rejects anything outside 20..1000;
+ * without the callback the framework reported 0 and CIT printed
+ * "value is beyond 20 - 1000".
+ */
+static int ps_get_raw_data(int *value)
+{
+	struct ltr579_priv *obj = ltr579_obj;
+	u16 ps = 0;
+	int err = -1;
+	int i;
+
+	if (!obj)
+		return -1;
+
+	/*
+	 * The factory interface (libhwm / CIT calibration) opens
+	 * /dev/als_ps and reads the raw PS count without going through the
+	 * sensor HAL, so PS may well be powered down at this point.  Bring
+	 * it up on demand; the register reads return 0 while the chip is in
+	 * standby, which made CIT complain that the value was out of range
+	 * instead of calibrating.
+	 */
+	if (!test_bit(CMC_BIT_PS, &obj->enable)) {
+		err = ltr579_ps_enable(obj->client, 1);
+		if (err < 0) {
+			LTR579_ERR("factory raw read: ps enable failed %d\n",
+				   err);
+			*value = 0;
+			return err;
+		}
+		/* give the first conversion time to complete */
+		msleep(120);
+	}
+
+	/* The first sample after enabling can still be zero. */
+	for (i = 0; i < 10; i++) {
+		err = ltr579_ps_read(obj->client, &ps);
+		if (!err && ps)
+			break;
+		msleep(20);
+	}
+
+	if (err < 0) {
+		*value = 0;
+		return err;
+	}
+
+	*value = ps;
+	return 0;
+}
+
+/*
+ * Threshold get/set for the factory interface.  The driver derives its
+ * own thresholds on every enable, so only the getters and the raw result
+ * matter for CIT; the setter is honoured as an explicit override.
+ */
+static int ps_threshold_setting(int type, int value[2])
+{
+	struct ltr579_priv *obj = ltr579_obj;
+
+	if (!obj)
+		return -1;
+
+	switch (type) {
+	case 1:		/* GET_TH_HIGH */
+		value[0] = atomic_read(&obj->ps_thd_val_high);
+		break;
+	case 2:		/* GET_TH_LOW */
+		value[0] = atomic_read(&obj->ps_thd_val_low);
+		break;
+	case 3:		/* SET_TH: value[0] = high, value[1] = low */
+		atomic_set(&obj->ps_thd_val_high, value[0]);
+		atomic_set(&obj->ps_thd_val_low, value[1]);
+		obj->ps_cali = 1;
+		return ltr579_ps_set_thres(obj->client);
+	case 4:		/* GET_TH_RESULT: current near/far value */
+		value[0] = ltr579_get_ps_value(obj);
+		break;
+	default:
+		return -1;
+	}
+
+	return 0;
+}
+
+/*
+ * The driver already calibrates on every enable; the factory calibration
+ * commands only need to be accepted so CIT does not treat them as errors.
+ */
+static int ps_calibration(int type, int value)
+{
+	LTR579_LOG("ps calibration type=%d value=%d\n", type, value);
 	return 0;
 }
 
@@ -645,7 +854,11 @@ static int ltr579_i2c_probe(struct i2c_client *client,
 	if (err)
 		goto exit_free;
 
-	als_ctl.is_use_common_factory = false;
+	/*
+	 * Register the common factory misc device (/dev/als_ps).  libhwm
+	 * and the CIT proximity calibration talk to this node directly.
+	 */
+	als_ctl.is_use_common_factory = true;
 	als_ctl.open_report_data = als_open_report_data;
 	als_ctl.enable_nodata = als_enable_nodata;
 	als_ctl.set_delay = als_set_delay;
@@ -656,22 +869,34 @@ static int ltr579_i2c_probe(struct i2c_client *client,
 		goto exit_free;
 
 	als_data.get_data = als_get_data;
+	als_data.als_get_raw_data = als_get_raw_data;
 	als_data.vender_div = 100;
 	err = als_register_data_path(&als_data);
 	if (err)
 		goto exit_free;
 
-	ps_ctl.is_use_common_factory = false;
+	ps_ctl.is_use_common_factory = true;
 	ps_ctl.open_report_data = ps_open_report_data;
 	ps_ctl.enable_nodata = ps_enable_nodata;
 	ps_ctl.set_delay = ps_set_delay;
+	ps_ctl.ps_calibration = ps_calibration;
+	ps_ctl.ps_threshold_setting = ps_threshold_setting;
 	ps_ctl.is_report_input_direct = false;
+	/*
+	 * This driver has no EINT handler and always reads the PS status
+	 * register from a work queue, so tell the ALSPS framework to keep
+	 * re-arming its polling timer.  Without this flag alsps.c stops the
+	 * PS timer right after the first valid sample ("detects once"), so
+	 * covering the sensor is never reported to the HAL again.
+	 */
+	ps_ctl.is_polling_mode = true;
 	ps_ctl.is_support_batch = false;
 	err = ps_register_control_path(&ps_ctl);
 	if (err)
 		goto exit_free;
 
 	ps_data.get_data = ps_get_data;
+	ps_data.ps_get_raw_data = ps_get_raw_data;
 	ps_data.vender_div = 100;
 	err = ps_register_data_path(&ps_data);
 	if (err)

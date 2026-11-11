@@ -92,8 +92,16 @@ static DECLARE_MUTEX(g_strobeSem);
 
 #define STROBE_DEVICE_ID 0x60
 
-#define LED1_WARM
-// #define LED1_COLD
+/*
+ * nikel has a dual-tone flash: the LM3643 drives one LED per channel.
+ * Strobe 1 (this driver) owns the cold LED on channel 1, strobe 2
+ * (strobe_main_sid2_part1.c) owns the warm LED on channel 2, so select
+ * LED1_COLD here.  The macro name is the vendor's: LED1_WARM means
+ * "this instance drives the warm LED", which for this file is channel
+ * 2, while the sid2 driver uses the opposite convention.
+ */
+// #define LED1_WARM
+#define LED1_COLD
 
 
 static struct work_struct workTimeOut;
@@ -212,6 +220,7 @@ static int SGM3784_read_reg(struct i2c_client *client, u8 reg)
 #define LM3643_REG_FLASH_BR_LED2 0x04
 #define LM3643_REG_TORCH_BR_LED1 0x05
 #define LM3643_REG_TORCH_BR_LED2 0x06
+#define LM3643_REG_FLASH_TOUT    0x08
 #define LM3643_REG_DEV_ID        0x0c
 
 #define LM3643_DUTY_MAX 25
@@ -230,6 +239,8 @@ static const u8 lm3643_torch_duty_b[LM3643_DUTY_MAX + 1] = {
 
 static int g_lm3643_mode = 1;	/* 0: id 0x08, 1: other, 2: id 0x18 */
 static u8 g_lm3643_enable_shadow;
+/* true while HWEN is high and the register set is valid */
+static bool g_lm3643_powered;
 
 /*
  * The camera HAL (libcameracustom.so) opens the relative path
@@ -263,6 +274,8 @@ static int SGM3784_chip_init(struct SGM3784_chip_data *chip)
 
 	/* bring the chip out of shutdown before touching registers */
 	flashlight_gpio_set(FLASHLIGHT_PIN_HWEN, STATE_HIGH);
+	/* the LM3643 needs a short settle time after HWEN before it ACKs */
+	mdelay(2);
 
 	dev_id = SGM3784_read_reg(client, LM3643_REG_DEV_ID);
 	PK_DBG("LM3643 dev_id=0x%02x\n", dev_id);
@@ -274,8 +287,17 @@ static int SGM3784_chip_init(struct SGM3784_chip_data *chip)
 	else
 		g_lm3643_mode = 1;
 
+	/*
+	 * Full power-on register sequence from the official kernel
+	 * init_lm3643(): standby, maximum flash/torch currents and the
+	 * flash timeout value.  0x08 is what makes the chip actually
+	 * drive the LED when the enable register is written later.
+	 */
 	g_lm3643_enable_shadow = 0;
 	SGM3784_write_reg(client, LM3643_REG_ENABLE, 0x00);
+	SGM3784_write_reg(client, LM3643_REG_FLASH_BR_LED1, 0x3f);
+	SGM3784_write_reg(client, LM3643_REG_TORCH_BR_LED1, 0x3f);
+	SGM3784_write_reg(client, LM3643_REG_FLASH_TOUT, 0x1b);
 
 	return 0;
 }
@@ -584,8 +606,33 @@ static void lm3643_disable(int ch)
 
 int FlashIc_Enable(void)
 {
+	/*
+	 * Matches the official FL_Init()/init_lm3643(): every time the chip
+	 * is taken out of shutdown the register set is re-programmed.
+	 * FlashIc_Disable() powers HWEN down, so the previous register
+	 * contents are lost and a bare HWEN pulse would leave the chip in
+	 * its reset state (LEDs never light up).
+	 *
+	 * The camera HAL enables both strobes through this shared chip, so
+	 * after the first call the register set (and ENABLE) is still valid
+	 * and must not be wiped: resetting it would switch off the channel
+	 * the other strobe has just enabled.  That clobbering is what made
+	 * the flashlight stay dark/dim before.
+	 */
+	if (g_lm3643_powered)
+		return 0;
+
 	flashlight_gpio_set(FLASHLIGHT_PIN_HWEN, STATE_HIGH);
-	PK_DBG("LM3643 HWEN high\n");
+	mdelay(2);
+
+	g_lm3643_enable_shadow = 0;
+	lm3643_write_reg(LM3643_REG_ENABLE, 0x00);
+	lm3643_write_reg(LM3643_REG_FLASH_BR_LED1, 0x3f);
+	lm3643_write_reg(LM3643_REG_TORCH_BR_LED1, 0x3f);
+	lm3643_write_reg(LM3643_REG_FLASH_TOUT, 0x1b);
+	g_lm3643_powered = true;
+
+	PK_DBG("LM3643 HWEN high + init\n");
 	return 0;
 }
 
@@ -593,6 +640,9 @@ int FlashIc_Disable(void)
 {
 	lm3643_disable(1);
 	lm3643_disable(2);
+	lm3643_write_reg(LM3643_REG_ENABLE, 0x00);
+	g_lm3643_enable_shadow = 0;
+	g_lm3643_powered = false;
 	flashlight_gpio_set(FLASHLIGHT_PIN_HWEN, STATE_LOW);
 	PK_DBG("LM3643 HWEN low\n");
 	return 0;
@@ -635,6 +685,54 @@ int setDuty_SGM3784_2(int duty)
 	lm3643_set_duty(2, duty);
 	return 0;
 }
+
+/*
+ * Brightness the CIT Led test writes to /sys/class/leds/flashlight to
+ * request the *second* LED of the dual-tone flash (button "闪光灯2").
+ * The first button writes 3, exactly like a plain torch request, so the
+ * two buttons share the node and are told apart by the value.
+ */
+#define FLASHLIGHT_LEVEL_LED2	48
+
+/*
+ * Torch entry point for the stock /sys/class/leds/flashlight device
+ * (led_mode 6 in the DT).  On nikel the dual-tone flash has one LED per
+ * LM3643 channel and the CIT Led test exposes one button per LED; both
+ * buttons end up writing this node (the ROM reports a double flash, so
+ * even the camera button takes the sysfs path).  Button "打开闪光灯"
+ * writes 3 and must light channel 1 only, button "打开闪光灯2" writes 48
+ * and must light channel 2 only, so pressing one button lights exactly
+ * one LED.
+ */
+void flashlight_onoff(int level)
+{
+	PK_DBG("flashlight_onoff level=%d\n", level);
+
+	mutex_lock(&g_strobeSem);
+
+	if (level) {
+		FlashIc_Enable();
+		g_strobe_On = 1;
+		if (level == FLASHLIGHT_LEVEL_LED2) {
+			LED2Closeflag = 0;
+			setDuty_SGM3784_2(2);	/* torch mode, duty <= 3 */
+			flashEnable_SGM3784_2();
+		} else {
+			LED1Closeflag = 0;
+			setDuty_SGM3784_1(2);	/* torch mode, duty <= 3 */
+			flashEnable_SGM3784_1();
+		}
+	} else {
+		LED1Closeflag = 1;
+		LED2Closeflag = 1;
+		flashDisable_SGM3784_1();
+		flashDisable_SGM3784_2();
+		g_strobe_On = 0;
+	}
+
+	mutex_unlock(&g_strobeSem);
+}
+EXPORT_SYMBOL(flashlight_onoff);
 
 /* Externs declared in kd_flashlight_type.h for the dual-LED interface. */
 int flashEnable_lm3643_1(void) { return flashEnable_SGM3784_1(); }

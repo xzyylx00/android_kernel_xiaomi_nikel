@@ -13,6 +13,15 @@ enum mt65xx_led_type {
 	MT65XX_LED_TYPE_KEYBOARD,
 	MT65XX_LED_TYPE_BUTTON,
 	MT65XX_LED_TYPE_LCD,
+	/*
+	 * nikel: the stock DT (and the official kernel) has a "flashlight"
+	 * LED node (led@7, led_mode 6) that routes the torch through the
+	 * camera flashlight driver.  The generic MT6797 LED driver we
+	 * ported only knew the first seven types, so /sys/class/leds/
+	 * flashlight never appeared and MIUI's torch / CIT flashlight test
+	 * had nothing to talk to.
+	 */
+	MT65XX_LED_TYPE_FLASHLIGHT,
 	MT65XX_LED_TYPE_TOTAL,
 };
 
@@ -22,7 +31,8 @@ enum mt65xx_led_mode {
 	MT65XX_LED_MODE_GPIO,
 	MT65XX_LED_MODE_PMIC,
 	MT65XX_LED_MODE_CUST_LCM,
-	MT65XX_LED_MODE_CUST_BLS_PWM
+	MT65XX_LED_MODE_CUST_BLS_PWM,
+	MT65XX_LED_MODE_FLASHLIGHT
 };
 
 /******************************************************************************

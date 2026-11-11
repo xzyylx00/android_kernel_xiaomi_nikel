@@ -49,6 +49,7 @@
 #include <linux/fs.h>
 #include <linux/compat.h>
 #endif
+#include <mt-plat/mt_gpio.h>
 #include "kd_flashlight.h"
 
 
@@ -59,6 +60,9 @@
 
 /* device name and major number */
 #define FLASHLIGHT_DEVNAME            "kd_camera_flashlight"
+
+/* nikel: flashlight HWEN pin, see &flashlight in nikel.dts */
+#define FLASHLIGHT_HWEN_GPIO          140
 
 /******************************************************************************
  * Debug configuration
@@ -164,12 +168,17 @@ int flashlight_gpio_set(int pin , int state)
 
 	switch (pin) {
 	case FLASHLIGHT_PIN_HWEN:
-		if (state == STATE_LOW && !IS_ERR(flashlight_hwen_low))
-			pinctrl_select_state(flashlight_pinctrl, flashlight_hwen_low);
-		else if (state == STATE_HIGH && !IS_ERR(flashlight_hwen_high))
-			pinctrl_select_state(flashlight_pinctrl, flashlight_hwen_high);
-		else
-			logI("%s : set err, pin(%d) state(%d)\n", __func__, pin, state);
+		/*
+		 * HWEN is GPIO140 on nikel (official DTS pins = <0x8c00>).
+		 * Applying the hwen_high pinctrl state fails on this kernel,
+		 * which leaves the LM3643 in shutdown and makes every I2C
+		 * access return -EREMOTEIO.  Toggle the pad directly, the
+		 * same way it was verified from userspace.
+		 */
+		mt_set_gpio_mode(FLASHLIGHT_HWEN_GPIO | 0x80000000, 0);
+		mt_set_gpio_dir(FLASHLIGHT_HWEN_GPIO | 0x80000000, 1);
+		mt_set_gpio_out(FLASHLIGHT_HWEN_GPIO | 0x80000000,
+				state == STATE_HIGH ? 1 : 0);
 		break;
 	case FLASHLIGHT_PIN_TORCH:
 		if (state == STATE_LOW && !IS_ERR(flashlight_torch_low))

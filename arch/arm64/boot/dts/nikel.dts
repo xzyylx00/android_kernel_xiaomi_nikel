@@ -1441,7 +1441,7 @@
 	flashlight_pins_hwen_high: hwen_high {
 
 	    pins_cmd_dat {
-			pins = <PINMUX_GPIO90__FUNC_GPIO90>;
+			pins = <PINMUX_GPIO140__FUNC_GPIO140>;
 			slew-rate = <1>;
 			output-high;
 		};
@@ -1450,7 +1450,7 @@
 	flashlight_pins_hwen_low: hwen_low {
 
 	    pins_cmd_dat {
-			pins = <PINMUX_GPIO90__FUNC_GPIO90>;
+			pins = <PINMUX_GPIO140__FUNC_GPIO140>;
 			slew-rate = <1>;
 			output-low;
 		};

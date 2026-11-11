@@ -1640,6 +1640,17 @@ static DEVICE_ATTR(Pump_Express, 0664, show_Pump_Express, store_Pump_Express);
 
 static void mt_battery_update_EM(struct battery_data *bat_data)
 {
+#ifndef USING_SMOOTH_UI_SOC2
+	/*
+	 * nikel uses the non-smooth reporting path: UI_SOC2 is only ever
+	 * written by battery_meter_smooth_uisoc2(), which is compiled out
+	 * unless USING_SMOOTH_UI_SOC2 is defined.  It therefore stays at
+	 * the -1 initialised in battery_meter_initial() and BAT_CAPACITY
+	 * is clamped to 1, so Android always shows 1% while the gauge
+	 * itself reports the real value in UI_SOC.  Keep the two in sync.
+	 */
+	BMT_status.UI_SOC2 = BMT_status.UI_SOC;
+#endif
 	bat_data->BAT_CAPACITY = BMT_status.UI_SOC2;
 	bat_data->BAT_TemperatureR = BMT_status.temperatureR;	/* API */
 	bat_data->BAT_TempBattVoltage = BMT_status.temperatureV;	/* API */

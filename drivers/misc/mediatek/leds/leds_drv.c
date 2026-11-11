@@ -835,6 +835,18 @@ static int __init mt65xx_leds_init(void)
 	LEDS_DRV_DEBUG("%s\n", __func__);
 
 #ifdef CONFIG_OF
+	/*
+	 * The button backlight is driven through the pinctrl states declared
+	 * on the "mediatek,leds" DT node.  The legacy platform device has no
+	 * of_node of its own, so devm_pinctrl_get() in the probe (via
+	 * button_backlight_pinctrl_init()) would fail with -ENODEV.  Attach
+	 * the DT node before registering the device.
+	 */
+	mt65xx_leds_device.dev.of_node =
+	    of_find_compatible_node(NULL, NULL, "mediatek,leds");
+	if (!mt65xx_leds_device.dev.of_node)
+		LEDS_DRV_DEBUG("mt65xx_leds_init: no leds DT node\n");
+
 	ret = platform_device_register(&mt65xx_leds_device);
 	if (ret)
 		LEDS_DRV_DEBUG("mt65xx_leds_init:dev:E%d\n", ret);

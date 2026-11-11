@@ -47,8 +47,13 @@
 #define TAG_NAME "[strobe_main_sid2_part1.c]"
 #define PK_DBG_FUNC(fmt, arg...)    pr_debug(TAG_NAME "%s: " fmt, __func__ , ##arg)
 
-#define LED1_WARM
-// #define LED1_COLD
+/*
+ * This instance is the secondary (warm) strobe of the dual-tone flash and
+ * is wired to LM3643 channel 2.  Keep the vendor macro flipped so the
+ * remaining debug printouts name the right channel.
+ */
+// #define LED1_WARM
+#define LED1_COLD
 
 #define DEBUG_LEDS_STROBE
 #ifdef DEBUG_LEDS_STROBE
@@ -82,34 +87,33 @@ extern int m_duty1;	//add by lijin 2015.5.13
 extern int m_duty2;
 extern int LED1Closeflag;
 extern int LED2Closeflag;
+/* Duty the 3A computes for the secondary (warm) LED of the dual flash. */
+static int warm_duty;
+/*
+ * nikel uses a dual-tone flash: strobe 1 drives the cold LED on LM3643
+ * channel 1 (constant_flashlight/leds_strobe.c) and this instance owns
+ * the warm LED on channel 2.  It used to call the channel-1 helpers,
+ * i.e. the same output as strobe 1, and also called FlashIc_Enable(),
+ * which resets ENABLE and the shadow state of the whole chip: the second
+ * strobe therefore switched the cold LED back off / re-programmed it at
+ * the (usually 0) warm duty.  Keep the device-node contract and drive
+ * only channel 2, never reset the shared chip.
+ */
 static int FL_Enable(void)
 {
-#ifdef LED1_WARM
-    flashEnable_SGM3784_1();
-#else
-    flashEnable_SGM3784_2();
-#endif
-	PK_DBG("FL_Enable-");
+	flashEnable_SGM3784_2();
 	return 0;
 }
 
 static int FL_Disable(void)
 {
-#ifdef LED1_WARM
-    flashDisable_SGM3784_1();
-#else
-    flashDisable_SGM3784_2();
-#endif
+	flashDisable_SGM3784_2();
 	return 0;
 }
 
 static int FL_dim_duty(kal_uint32 duty)
 {
-#ifdef LED1_WARM
-    setDuty_SGM3784_1(duty);
-#else
-    setDuty_SGM3784_2(duty);
-#endif
+	setDuty_SGM3784_2(duty);
 	return 0;
 }
 
@@ -223,20 +227,10 @@ static int constant_flashlight_ioctl(unsigned int cmd, unsigned long arg)
 
 
 	case FLASH_IOC_SET_DUTY:
-		#ifdef LED1_WARM
-		PK_DBG("FLASH_IOC_SET_DUTY LED1: %d\n", (int)arg);
-		#else
-		PK_DBG("FLASH_IOC_SET_DUTY LED2: %d\n", (int)arg);
-		#endif
-		// if(arg < 0)
-			// arg = 0;
-		// if(arg>=/* e_DutyNum */16)
-			// arg=16-1;
-		#ifdef LED1_WARM
-		m_duty1 = arg;
-		#else
-		m_duty2 = arg;
-		#endif
+		PK_DBG("FLASH_IOC_SET_DUTY warm: %d\n", (int)arg);
+		/* Keep the request separate: m_duty2 is also written by the
+		 * sysfs torch path and by setDuty_SGM3784_2(). */
+		warm_duty = arg;
 		break;
 
 
@@ -246,52 +240,36 @@ static int constant_flashlight_ioctl(unsigned int cmd, unsigned long arg)
 		break;
 
 	case FLASH_IOC_SET_ONOFF:
-		#ifdef LED1_WARM
-		PK_DBG("FLASH_IOC_SET_ONOFF LED1: %d\n", (int)arg);
-		#else
-		PK_DBG("FLASH_IOC_SET_ONOFF LED2: %d\n", (int)arg);
-		#endif
+		PK_DBG("FLASH_IOC_SET_ONOFF warm: %d\n", (int)arg);
 		if (arg == 1) {
+			/*
+			 * The 3A supports a dual-tone flash and computes a
+			 * separate duty for each strobe.  In torch mode it
+			 * asks for 0 on the warm LED, so honour that: only
+			 * light channel 2 when the HAL actually requests a
+			 * non-zero duty.  Lighting it unconditionally would
+			 * make the camera torch (CIT "打开闪光灯") light both
+			 * LEDs when it should light its own one.
+			 */
+			if (warm_duty <= 0) {
+				LED2Closeflag = 1;
+				FL_Disable();
+				break;
+			}
 			if (g_timeOutTimeMs != 0) {
 				ktime_t ktime;
-			
+
 				ktime = ktime_set(0, g_timeOutTimeMs * 1000000);
-				hrtimer_start(&g_timeOutTimer, ktime, HRTIMER_MODE_REL);
+				hrtimer_start(&g_timeOutTimer, ktime,
+					      HRTIMER_MODE_REL);
 			}
-			#ifdef LED1_WARM
-			LED1Closeflag = 0;//亮暖灯
-			#else
 			LED2Closeflag = 0;
-			#endif
-			FlashIc_Enable();//flashEnable_SGM3784_2();
-			#ifdef LED1_WARM
-			FL_dim_duty(m_duty1);
-			#else
-			FL_dim_duty(m_duty2);
-			#endif
+			FL_dim_duty(warm_duty);
 			FL_Enable();
-			// #ifdef LED1_WARM
-			// setDuty_SGM3784_1(m_duty1);
-			// flashEnable_SGM3784_1();
-			// #else
-			// setDuty_SGM3784_2(m_duty2);//调用setDuty_SGM3784_2 函数里面区分是LED1还是LED2
-			// flashEnable_SGM3784_2();//调用flashEnable_SGM3784_2 函数里面区分是LED1还是LED2//设置timeout time g_timeOutTimeMs_reg
-			// #endif
 		}
 		else{
-			#ifdef LED1_WARM
-			LED1Closeflag = 1;//灭暖灯
-			#else
 			LED2Closeflag = 1;
-			#endif
-			FlashIc_Enable();
-			//FL_dim_duty(m_duty2);
 			FL_Disable();
-			// #ifdef LED1_WARM
-			// flashDisable_SGM3784_1();
-			// #else
-			// flashDisable_SGM3784_2(); //work_timeOutFunc函数中调用，但是这里注释掉的话，校准的时候不打闪 //disable flash mode  调用flashDisable_SGM3784_2				
-			// #endif
 			hrtimer_cancel(&g_timeOutTimer);
 		}
 		break;
