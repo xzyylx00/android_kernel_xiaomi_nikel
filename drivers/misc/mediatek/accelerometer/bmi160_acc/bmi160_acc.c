@@ -2743,10 +2743,28 @@ static void bmi160_ring_work_func(struct work_struct *work)
 
 static void bmi160_ring_start(struct bmi160_acc_i2c_data *obj)
 {
+	u8 v;
+
 	if (!obj)
 		return;
 	if (atomic_xchg(&obj->ring_on, 1))
 		return;
+
+	/*
+	 * The HAL feeds gyroscope samples from this ring too.  Make sure the
+	 * BMI160 gyro is actually powered and configured; the accelerometer
+	 * PMU command only brings up the accelerometer half.
+	 */
+	if (bmi160_acc_i2c_client) {
+		v = 0x00;	/* +-2000 dps */
+		bma_i2c_write_block(bmi160_acc_i2c_client, 0x0F, &v, 1);
+		v = 0x09;	/* 200 Hz */
+		bma_i2c_write_block(bmi160_acc_i2c_client, 0x10, &v, 1);
+		v = 0x15;	/* CMD_PMU_GYRO_NORMAL */
+		bma_i2c_write_block(bmi160_acc_i2c_client, 0x7E, &v, 1);
+		bmi_delay(5);
+	}
+
 	schedule_delayed_work(&obj->ring_work, 0);
 }
 
