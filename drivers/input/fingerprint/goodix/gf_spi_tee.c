@@ -106,6 +106,10 @@ static unsigned bufsiz = (15 * 1024);
 module_param(bufsiz, uint, S_IRUGO);
 MODULE_PARM_DESC(bufsiz, "maximum data bytes for SPI message");
 
+static bool gf_probe_fw_check;
+module_param(gf_probe_fw_check, bool, 0644);
+MODULE_PARM_DESC(gf_probe_fw_check, "run the REE firmware check at probe");
+
 #ifdef CONFIG_OF
 static const struct of_device_id gf_of_match[] = {
 	{ .compatible = "mediatek,fingerprint", },
@@ -179,69 +183,70 @@ long int kernel_time(unsigned int step)
 static int gf_get_gpio_dts_info(void)
 {
 #ifdef CONFIG_OF
-	int ret;
-
 	struct device_node *node;
 	struct platform_device *pdev;
 
 	gf_debug(DEBUG_LOG, "%s, from dts pinctrl\n", __func__);
 
+	g_gf_dev->pinctrl_gpios = NULL;
+	g_gf_dev->pins_default = NULL;
+	g_gf_dev->pins_miso_spi = NULL;
+	g_gf_dev->pins_miso_pullhigh = NULL;
+	g_gf_dev->pins_miso_pulllow = NULL;
+	g_gf_dev->pins_reset_high = NULL;
+	g_gf_dev->pins_reset_low = NULL;
+
 	node = of_find_compatible_node(NULL, NULL, "mediatek,goodix-fp");
-	if (node) {
-		pdev = of_find_device_by_node(node);
-		if (pdev) {
-			g_gf_dev->pinctrl_gpios = devm_pinctrl_get(&pdev->dev);
-			if (IS_ERR(g_gf_dev->pinctrl_gpios)) {
-				ret = PTR_ERR(g_gf_dev->pinctrl_gpios);
-				gf_debug(ERR_LOG, "%s can't find fingerprint pinctrl\n", __func__);
-				return ret;
-			}
-		} else {
-			gf_debug(ERR_LOG, "%s platform device is null\n", __func__);
-		}
-	} else {
+	if (!node) {
 		gf_debug(ERR_LOG, "%s device node is null\n", __func__);
+		return 0;
 	}
 
-	/* it's normal that get "default" will failed */
+	pdev = of_find_device_by_node(node);
+	if (!pdev) {
+		gf_debug(ERR_LOG, "%s platform device is null\n", __func__);
+		return 0;
+	}
+
+	g_gf_dev->pinctrl_gpios = devm_pinctrl_get(&pdev->dev);
+	if (IS_ERR(g_gf_dev->pinctrl_gpios)) {
+		gf_debug(ERR_LOG, "%s can't find fingerprint pinctrl\n", __func__);
+		g_gf_dev->pinctrl_gpios = NULL;
+		return 0;
+	}
+
 	g_gf_dev->pins_default = pinctrl_lookup_state(g_gf_dev->pinctrl_gpios, "default");
 	if (IS_ERR(g_gf_dev->pins_default)) {
-		ret = PTR_ERR(g_gf_dev->pins_default);
-		gf_debug(ERR_LOG, "%s can't find fingerprint pinctrl default\n", __func__);
-		/* return ret; */
+		gf_debug(ERR_LOG, "%s no default pinctrl\n", __func__);
+		g_gf_dev->pins_default = NULL;
 	}
 	g_gf_dev->pins_miso_spi = pinctrl_lookup_state(g_gf_dev->pinctrl_gpios, "miso_spi");
 	if (IS_ERR(g_gf_dev->pins_miso_spi)) {
-		ret = PTR_ERR(g_gf_dev->pins_miso_spi);
-		gf_debug(ERR_LOG, "%s can't find fingerprint pinctrl miso_spi\n", __func__);
-		return ret;
+		gf_debug(ERR_LOG, "%s no miso_spi pinctrl\n", __func__);
+		g_gf_dev->pins_miso_spi = NULL;
 	}
 	g_gf_dev->pins_miso_pullhigh = pinctrl_lookup_state(g_gf_dev->pinctrl_gpios, "miso_pullhigh");
 	if (IS_ERR(g_gf_dev->pins_miso_pullhigh)) {
-		ret = PTR_ERR(g_gf_dev->pins_miso_pullhigh);
-		gf_debug(ERR_LOG, "%s can't find fingerprint pinctrl miso_pullhigh\n", __func__);
-		return ret;
+		gf_debug(ERR_LOG, "%s no miso_pullhigh pinctrl\n", __func__);
+		g_gf_dev->pins_miso_pullhigh = NULL;
 	}
 	g_gf_dev->pins_miso_pulllow = pinctrl_lookup_state(g_gf_dev->pinctrl_gpios, "miso_pulllow");
 	if (IS_ERR(g_gf_dev->pins_miso_pulllow)) {
-		ret = PTR_ERR(g_gf_dev->pins_miso_pulllow);
-		gf_debug(ERR_LOG, "%s can't find fingerprint pinctrl miso_pulllow\n", __func__);
-		return ret;
+		gf_debug(ERR_LOG, "%s no miso_pulllow pinctrl\n", __func__);
+		g_gf_dev->pins_miso_pulllow = NULL;
 	}
 	g_gf_dev->pins_reset_high = pinctrl_lookup_state(g_gf_dev->pinctrl_gpios, "reset_high");
 	if (IS_ERR(g_gf_dev->pins_reset_high)) {
-		ret = PTR_ERR(g_gf_dev->pins_reset_high);
-		gf_debug(ERR_LOG, "%s can't find fingerprint pinctrl reset_high\n", __func__);
-		return ret;
+		gf_debug(ERR_LOG, "%s no reset_high pinctrl\n", __func__);
+		g_gf_dev->pins_reset_high = NULL;
 	}
 	g_gf_dev->pins_reset_low = pinctrl_lookup_state(g_gf_dev->pinctrl_gpios, "reset_low");
 	if (IS_ERR(g_gf_dev->pins_reset_low)) {
-		ret = PTR_ERR(g_gf_dev->pins_reset_low);
-		gf_debug(ERR_LOG, "%s can't find fingerprint pinctrl reset_low\n", __func__);
-		return ret;
+		gf_debug(ERR_LOG, "%s no reset_low pinctrl\n", __func__);
+		g_gf_dev->pins_reset_low = NULL;
 	}
-	gf_debug(DEBUG_LOG, "%s, get pinctrl success!\n", __func__);
 
+	gf_debug(DEBUG_LOG, "%s, get pinctrl done\n", __func__);
 #endif
 	return 0;
 }
@@ -283,19 +288,18 @@ static void gf_spi_clk_enable(u8 bonoff)
 		disable_clock(MT_CG_PERI_SPI0, "spi");
 
 #else
-	/* changed after MT6797 platform */
+	/* changed after MT6797 platform.
+	 * Enable unconditionally: the SPI core disables the controller clock
+	 * after every transfer, and the TEE's Drspi needs it on while the
+	 * fingerprint TA is running. */
 	struct mt_spi_t *ms = NULL;
-	static int count = 0;
 
 	ms = spi_master_get_devdata(g_gf_dev->spi->master);
 
-	if (bonoff && (count == 0)) {
+	if (bonoff)
 		mt_spi_enable_clk(ms);
-		count = 1;
-	} else if ((count > 0) && (bonoff == 0)) {
+	else
 		mt_spi_disable_clk(ms);
-		count = 0;
-	}
 #endif
 }
 
@@ -304,15 +308,23 @@ static void gf_bypass_flash_gpio_cfg(void)
 	/* TODO: by pass flash IO config, default connect to GND */
 }
 
+static void gf_pinctrl_select(struct pinctrl_state *state)
+{
+#ifdef CONFIG_OF
+	if (!IS_ERR_OR_NULL(g_gf_dev->pinctrl_gpios) && !IS_ERR_OR_NULL(state))
+		pinctrl_select_state(g_gf_dev->pinctrl_gpios, state);
+#endif
+}
+
 /* pull high miso, or change to SPI mode */
 static void gf_miso_gpio_cfg(u8 pullhigh)
 {
 
 #ifdef CONFIG_OF
 	if (pullhigh)
-		pinctrl_select_state(g_gf_dev->pinctrl_gpios, g_gf_dev->pins_miso_pullhigh);
+		gf_pinctrl_select(g_gf_dev->pins_miso_pullhigh);
 	else
-		pinctrl_select_state(g_gf_dev->pinctrl_gpios, g_gf_dev->pins_miso_spi);
+		gf_pinctrl_select(g_gf_dev->pins_miso_spi);
 
 #endif
 }
@@ -336,7 +348,7 @@ static void gf_irq_gpio_cfg(void)
 static void gf_reset_gpio_cfg(void)
 {
 #ifdef CONFIG_OF
-	pinctrl_select_state(g_gf_dev->pinctrl_gpios, g_gf_dev->pins_reset_high);
+	gf_pinctrl_select(g_gf_dev->pins_reset_high);
 #endif
 
 }
@@ -345,9 +357,9 @@ static void gf_reset_gpio_cfg(void)
 static void gf_hw_reset(u8 delay)
 {
 #ifdef CONFIG_OF
-	pinctrl_select_state(g_gf_dev->pinctrl_gpios, g_gf_dev->pins_reset_low);
+	gf_pinctrl_select(g_gf_dev->pins_reset_low);
 	mdelay(5);
-	pinctrl_select_state(g_gf_dev->pinctrl_gpios, g_gf_dev->pins_reset_high);
+	gf_pinctrl_select(g_gf_dev->pins_reset_high);
 #endif
 
 	if (delay) {
@@ -1010,11 +1022,11 @@ static ssize_t gf_debug_store(struct device *dev,
 
 #ifdef CONFIG_OF
 		if (flag == 0) {
-			pinctrl_select_state(g_gf_dev->pinctrl_gpios, g_gf_dev->pins_miso_pulllow);
+			gf_pinctrl_select(g_gf_dev->pins_miso_pulllow);
 			gf_debug(INFO_LOG, "%s: set miso PIN to low\n", __func__);
 			flag = 1;
 		} else {
-			pinctrl_select_state(g_gf_dev->pinctrl_gpios, g_gf_dev->pins_miso_pullhigh);
+			gf_pinctrl_select(g_gf_dev->pins_miso_pullhigh);
 			gf_debug(INFO_LOG, "%s: set miso PIN to high\n", __func__);
 			flag = 0;
 		}
@@ -1060,6 +1072,7 @@ static int gf_open(struct inode *inode, struct file *filp)
 	}
 
 	if (status == 0) {
+		gf_spi_clk_enable(1);
 		mutex_lock(&gf_dev->buf_lock);
 		if (gf_dev->spi_buffer == NULL) {
 			gf_dev->spi_buffer = kzalloc(bufsiz, GFP_KERNEL);
@@ -1099,6 +1112,7 @@ static int gf_release(struct inode *inode, struct file *filp)
 	if (!gf_dev->users) {
 		gf_debug(INFO_LOG, "%s, disble_irq. irq = %d\n", __func__, gf_dev->irq);
 		gf_disable_irq(gf_dev);
+		gf_spi_clk_enable(0);
 	}
 	mutex_unlock(&device_list_lock);
 	gf_dev->device_available = 0;
@@ -1596,7 +1610,8 @@ static int gf_probe(struct spi_device *spi)
 
 	/* check firmware Integrity */
 #ifdef SUPPORT_REE_SPI
-	status = gf_init_flash_fw(gf_dev);
+	if (gf_probe_fw_check)
+		status = gf_init_flash_fw(gf_dev);
 	if (status == -ERR_NO_SENSOR) {
 		gf_hw_power_enable(0);
 		gf_debug(ERR_LOG, "%s, no goodix sensor.\n", __func__);

@@ -528,6 +528,60 @@
 	};
 };
 
+/*
+ * Goodix fingerprint on SPI0, using the controller's pad-macro pads.
+ * Do NOT add a pinmux here: GPIO58 belongs to the touch panel's
+ * regulator enable (ctp_pins_regulator_en_output*).
+ */
+&pio {
+	fp_default: fp_default {
+		pins_cmd_dat {
+			pins = <PINMUX_GPIO86__FUNC_EINT9>;
+			slew-rate = <0>;
+			bias-disable;
+		};
+	};
+
+	fp_reset_high: fp_reset_high {
+		pins_cmd_dat {
+			pins = <PINMUX_GPIO43__FUNC_GPIO43>;
+			slew-rate = <1>;
+			output-high;
+		};
+	};
+
+	fp_reset_low: fp_reset_low {
+		pins_cmd_dat {
+			pins = <PINMUX_GPIO43__FUNC_GPIO43>;
+			slew-rate = <1>;
+			output-low;
+		};
+	};
+};
+
+&goodix_fp {
+	interrupt-parent = <&eintc>;
+	interrupts = <86 IRQ_TYPE_EDGE_FALLING>;
+	pinctrl-names = "default", "reset_high", "reset_low";
+	pinctrl-0 = <&fp_default>;
+	pinctrl-1 = <&fp_reset_high>;
+	pinctrl-2 = <&fp_reset_low>;
+	status = "okay";
+};
+
+&spi0 {
+	#address-cells = <1>;
+	#size-cells = <0>;
+
+	goodix-fp@0 {
+		compatible = "goodix,goodix-fp";
+		reg = <0>;
+		spi-max-frequency = <8000000>;
+		netlink-event = <0x1a>;
+		status = "okay";
+	};
+};
+
 /* NFC GPIO standardization */
 &pio {
 	nfc_default: default {

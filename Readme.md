@@ -45,14 +45,20 @@
 	  appear to hang while saving because it calls the fingerprint
 	  `preEnroll()` afterwards; the credential is written before that
 	  call.
-	* Fingerprint: the Goodix driver finds no sensor on SPI0 (chip ID
-	  reads all zero), and the FPC TEE trustlet fails its INIT step
-	  (-3/-4). The stock FPC TEE kernel driver/integration is not in
-	  this tree yet, so fingerprint remains unsupported.
-	* SPI0 pins 57-60 cannot be reused for a fingerprint sensor on this
-	  board: GPIO58 is the touch panel regulator enable
-	  (ctp_pins_regulator_en_output*). Enabling the SPI0 pinmux there
-	  makes mtk-tpd fail to probe (touch dies).
+	* Fingerprint: the sensor is **Goodix on SPI0**, not FPC. This is
+	  confirmed by the CoreXGT LineageOS device tree (BUGFIXES.md #10b):
+	  the FPC TA probes SPI1 (nothing attached) and returns
+	  -3/FPC_ERROR_COMM, which is the error seen here.
+	* Do NOT add a pinmux on SPI0: the controller uses its pad-macro
+	  pads. GPIO58 is the touch panel regulator enable
+	  (ctp_pins_regulator_en_output*); claiming it makes mtk-tpd fail to
+	  probe and kills touch.
+	* Current state: `/dev/goodix_fp` is created and the Goodix HAL
+	  opens a TEEC session, but the TA's Drspi SPI transfer fails
+	  (TA result 0x427 = GF_ERROR_SPI_TRANSFER_ERROR, and the REE probe
+	  reads chip id 0x0). The reference fix ships the MIUI **bd54**
+	  prebuilt kernel, whose TEE/Drspi/SPI integration is not present
+	  in this tree. Fingerprint therefore still does not work.
 
 # Building the kernel
 ```
