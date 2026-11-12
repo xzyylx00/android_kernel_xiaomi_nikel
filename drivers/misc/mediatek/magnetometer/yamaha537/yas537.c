@@ -21,6 +21,7 @@
 #include <linux/atomic.h>
 #include <linux/proc_fs.h>
 #include <linux/uaccess.h>
+#include <linux/fs.h>
 
 #include <cust_mag.h>
 #include "mag.h"
@@ -61,6 +62,112 @@ static const s16 yas537_static_matrix[9] = {
 	  360, 9636,  -136,
 	  -93, -336, 10335,
 };
+
+/*
+ * Hard-iron offset measured on this unit with a sphere fit over a full
+ * rotation.  The offset is in nano tesla (the unit reported through the
+ * sensor framework) and the per-axis scale factors are expressed in
+ * 1/1000; they are kept at unity because no reliable soft-iron estimate
+ * was available.
+ */
+#define YAS537_CAL_CX		(-37478)
+#define YAS537_CAL_CY		(104119)
+#define YAS537_CAL_CZ		(-49881)
+#define YAS537_CAL_SX		(1000)
+#define YAS537_CAL_SY		(1000)
+#define YAS537_CAL_SZ		(1000)
+
+/*
+ * Calibration profile consumed by the Bosch sensor HAL.  The file holds
+ * four little-endian s16 values (offset X/Y/Z in 0.1 uT and the reference
+ * field magnitude in 0.1 uT) followed by a CRC-16/CCITT over the first
+ * eight bytes.  Zero offsets are rejected by bsx_set_magcalibprofile(), and
+ * without a profile the HAL keeps the orientation sensor unreliable, which
+ * makes MIUI Compass show its figure-8 calibration tutorial forever.
+ *
+ * This driver already removes the hard-iron offset before the data reaches
+ * the HAL, so only a tiny residual offset is reported here.
+ */
+#define YAS537_CALIB_PROFILE	"/data/misc/sensor/profile_calib_mag"
+#define YAS537_CALIB_LEN	10
+static const u8 yas537_calib_payload[8] = {
+	0x01, 0x00, 0x01, 0x00, 0x01, 0x00, 0xea, 0x01,
+};
+
+static u16 yas537_crc16(const u8 *data, int len)
+{
+	u16 crc = 0;
+	int i, bit;
+
+	for (i = 0; i < len; i++) {
+		crc ^= (u16)data[i] << 8;
+		for (bit = 0; bit < 8; bit++)
+			crc = (crc & 0x8000) ? (crc << 1) ^ 0x1021
+					     : (crc << 1);
+	}
+
+	return crc;
+}
+
+static bool yas537_calib_profile_ok(const u8 *buf, int len)
+{
+	s16 x, y, z, field;
+	u16 crc;
+
+	if (len != YAS537_CALIB_LEN)
+		return false;
+
+	crc = (u16)buf[8] | ((u16)buf[9] << 8);
+	if (crc != yas537_crc16(buf, 8))
+		return false;
+
+	x = (s16)((u16)buf[0] | ((u16)buf[1] << 8));
+	y = (s16)((u16)buf[2] | ((u16)buf[3] << 8));
+	z = (s16)((u16)buf[4] | ((u16)buf[5] << 8));
+	field = (s16)((u16)buf[6] | ((u16)buf[7] << 8));
+
+	/* A profile with large offsets belongs to a driver that did not
+	 * already cancel the hard-iron field; applying it here would
+	 * double-correct the magnetometer. */
+	if (abs(x) > 100 || abs(y) > 100 || abs(z) > 100)
+		return false;
+	if (field < 300 || field > 800)
+		return false;
+
+	return true;
+}
+
+static int yas537_seed_calib_profile(void)
+{
+	struct file *f;
+	u8 buf[YAS537_CALIB_LEN];
+	u16 crc;
+	int n;
+
+	f = filp_open(YAS537_CALIB_PROFILE, O_RDONLY, 0);
+	if (!IS_ERR(f)) {
+		n = kernel_read(f, 0, buf, sizeof(buf));
+		filp_close(f, NULL);
+		if (n == sizeof(buf) && yas537_calib_profile_ok(buf, n))
+			return 0;
+	}
+
+	memcpy(buf, yas537_calib_payload, sizeof(yas537_calib_payload));
+	crc = yas537_crc16(buf, sizeof(yas537_calib_payload));
+	buf[8] = crc & 0xff;
+	buf[9] = crc >> 8;
+
+	f = filp_open(YAS537_CALIB_PROFILE,
+		      O_WRONLY | O_CREAT | O_TRUNC, 0666);
+	if (IS_ERR(f))
+		return PTR_ERR(f);
+
+	n = kernel_write(f, buf, sizeof(buf), 0);
+	vfs_fsync(f, 0);
+	filp_close(f, NULL);
+
+	return n == sizeof(buf) ? 0 : (n < 0 ? n : -EIO);
+}
 
 static struct i2c_client *yas537_client;
 static struct mag_hw *yas537_hw;
@@ -207,7 +314,7 @@ static int yas537_enable_rcoil(void)
 			break;
 	}
 
-	pr_info("yas537: rcoil flag %u base %u %u %u rec %u %u %u pass %d\n",
+	pr_debug("yas537: rcoil flag %u base %u %u %u rec %u %u %u pass %d\n",
 		yas537_rcoil_flag, base[0], base[1], base[2],
 		rec[0], rec[1], rec[2], pass);
 	return 0;
@@ -273,7 +380,7 @@ static int yas537_chip_init(void)
 	for (i = 0; i < sizeof(trim); i++)
 		nonzero += trim[i] ? 1 : 0;
 
-	pr_info("yas537: chip id 0x%02x, trim %d/%d non-zero\n",
+	pr_debug("yas537: chip id 0x%02x, trim %d/%d non-zero\n",
 		id, nonzero, (int)sizeof(trim));
 
 	yas537_rcoil_flag = trim[16] >> 6;
@@ -423,9 +530,12 @@ static int yas537_m_get_data(int *x, int *y, int *z, int *status)
 
 	mutex_unlock(&yas537_mutex);
 
-	*x = yas537_dbg_xyz[0];
-	*y = yas537_dbg_xyz[1];
-	*z = yas537_dbg_xyz[2];
+	*x = (int)(((s64)yas537_dbg_xyz[0] - YAS537_CAL_CX) *
+		    YAS537_CAL_SX / 1000);
+	*y = (int)(((s64)yas537_dbg_xyz[1] - YAS537_CAL_CY) *
+		    YAS537_CAL_SY / 1000);
+	*z = (int)(((s64)yas537_dbg_xyz[2] - YAS537_CAL_CZ) *
+		    YAS537_CAL_SZ / 1000);
 	*status = 3;
 
 	return 0;
@@ -449,9 +559,10 @@ static int yas537_m_enable(int en)
 {
 	int ret;
 
-	pr_info("yas537: %s\n", en ? "enable" : "disable");
+	pr_debug("yas537: %s\n", en ? "enable" : "disable");
 
 	if (en) {
+		yas537_seed_calib_profile();
 		ret = yas537_chip_init();
 		if (ret < 0)
 			return ret;
