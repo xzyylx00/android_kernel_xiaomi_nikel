@@ -49,6 +49,10 @@
 	  reads all zero), and the FPC TEE trustlet fails its INIT step
 	  (-3/-4). The stock FPC TEE kernel driver/integration is not in
 	  this tree yet, so fingerprint remains unsupported.
+	* SPI0 pins 57-60 cannot be reused for a fingerprint sensor on this
+	  board: GPIO58 is the touch panel regulator enable
+	  (ctp_pins_regulator_en_output*). Enabling the SPI0 pinmux there
+	  makes mtk-tpd fail to probe (touch dies).
 
 # Building the kernel
 ```
