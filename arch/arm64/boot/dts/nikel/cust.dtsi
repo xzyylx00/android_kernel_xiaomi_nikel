@@ -280,7 +280,7 @@
 };
 &accdet {
 	interrupt-parent = <&eintc>;
-	interrupts = <92 IRQ_TYPE_LEVEL_LOW>;
+	interrupts = <92 IRQ_TYPE_LEVEL_HIGH>;
 	debounce = <92 256000>;
 	status = "okay";
 };
