@@ -32,6 +32,7 @@
 	* BMI160 gyroscope
 	* Wired headset detection, audio routing, mic and buttons
 	* Lock-screen numeric PIN (credential set and unlock verified)
+	* Fingerprint (Goodix on SPI0) — TEE/HAL init and enrollment start
 
 =================================================
 * Not working / untested:
@@ -53,12 +54,21 @@
 	  pads. GPIO58 is the touch panel regulator enable
 	  (ctp_pins_regulator_en_output*); claiming it makes mtk-tpd fail to
 	  probe and kills touch.
-	* Current state: `/dev/goodix_fp` is created and the Goodix HAL
-	  opens a TEEC session, but the TA's Drspi SPI transfer fails
-	  (TA result 0x427 = GF_ERROR_SPI_TRANSFER_ERROR, and the REE probe
-	  reads chip id 0x0). The reference fix ships the MIUI **bd54**
-	  prebuilt kernel, whose TEE/Drspi/SPI integration is not present
-	  in this tree. Fingerprint therefore still does not work.
+	* Current state: **working**. The kernel side (Goodix on SPI0,
+	  `/dev/goodix_fp`) was already correct. The TEE HAL failed with
+	  0x427 because MIUI's `mcDriverDaemon` stores the Goodix TA's
+	  secure objects under `/data/app/mcRegistry`, which
+	  PackageManagerService deletes at boot, and because the daemon is
+	  started before that store is usable (CoreXGT BUGFIXES.md #10b-f).
+	  Fix:
+	    - patch `/system/bin/mcDriverDaemon` to use
+	      `/data/misc/mcregistr` (same-length path);
+	    - create `/data/misc/mcregistr` at `post-fs-data`;
+	    - restart `mobicore` and `goodixfpd` once boot completes
+	      (a Magisk `service.d` script on this unit).
+	  With that, `gf_hal_init` returns 0 and the enrollment screen
+	  starts with `GF_CMD_ENROLL`. Touch and the lock-screen PIN are
+	  unaffected; finish the finger capture to verify unlock.
 
 # Building the kernel
 ```
