@@ -339,6 +339,7 @@ static void gf_irq_gpio_cfg(void)
 		g_gf_dev->irq_num = irq_of_parse_and_map(node, 0);
 		gf_debug(INFO_LOG, "%s, gf_irq = %d\n", __func__, g_gf_dev->irq_num);
 		g_gf_dev->irq = g_gf_dev->irq_num;
+		gf_pinctrl_select(g_gf_dev->pins_default);
 	} else
 		gf_debug(ERR_LOG, "%s can't find compatible node\n", __func__);
 
@@ -349,6 +350,7 @@ static void gf_reset_gpio_cfg(void)
 {
 #ifdef CONFIG_OF
 	gf_pinctrl_select(g_gf_dev->pins_reset_high);
+	gf_pinctrl_select(g_gf_dev->pins_default);
 #endif
 
 }
@@ -360,6 +362,8 @@ static void gf_hw_reset(u8 delay)
 	gf_pinctrl_select(g_gf_dev->pins_reset_low);
 	mdelay(5);
 	gf_pinctrl_select(g_gf_dev->pins_reset_high);
+	/* reset_* only carry the reset pin; restore the EINT mux on the IRQ pin */
+	gf_pinctrl_select(g_gf_dev->pins_default);
 #endif
 
 	if (delay) {
