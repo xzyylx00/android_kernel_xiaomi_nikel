@@ -2776,6 +2776,17 @@ static void bmi160_ring_stop(struct bmi160_acc_i2c_data *obj)
 	cancel_delayed_work_sync(&obj->ring_work);
 }
 
+/*
+ * The gyroscope framework driver shares the BMI160 with this driver.  It
+ * must not put the gyro back to suspend while the HAL ring buffer still
+ * depends on it.
+ */
+bool bmi160_ring_is_active(void)
+{
+	return obj_i2c_data && atomic_read(&obj_i2c_data->ring_on);
+}
+EXPORT_SYMBOL(bmi160_ring_is_active);
+
 static int bmi160_get_fifo_wm(u8 *v_fifo_wm_u8)
 {
 	/* variable used for return the status of communication result*/

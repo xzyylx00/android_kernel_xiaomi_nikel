@@ -50,6 +50,7 @@ extern s8 bmi_i2c_read_wrapper(u8 dev_addr, u8 reg_addr, u8 *data, u8 len);
 extern s8 bmi_i2c_write_wrapper(u8 dev_addr, u8 reg_addr, u8 *data, u8 len);
 extern int gyro_set_data_active(int enable);
 extern void gyro_set_poll_delay(unsigned int delay_ms);
+extern bool bmi160_ring_is_active(void);
 
 static struct gyro_hw bmi160_gyro_cust;
 static struct gyro_hw *bmi160_gyro_hw;
@@ -109,10 +110,18 @@ static int bmi160_gyro_enable_nodata(int en)
 		msleep(5);
 		atomic_set(&bmi160_gyro_enable, 1);
 	} else {
-		ret = bmi160_gyro_write(BMI160_REG_CMD,
-					BMI160_CMD_GYRO_SUSPEND);
-		if (ret < 0)
-			return ret;
+		/*
+		 * The HAL takes gyro samples from the accelerometer ring
+		 * buffer.  Leave the gyro running while that feed is active;
+		 * otherwise the fusion loses the angular rate and the
+		 * orientation sensor stops tracking.
+		 */
+		if (!bmi160_ring_is_active()) {
+			ret = bmi160_gyro_write(BMI160_REG_CMD,
+						BMI160_CMD_GYRO_SUSPEND);
+			if (ret < 0)
+				return ret;
+		}
 		atomic_set(&bmi160_gyro_enable, 0);
 	}
 
