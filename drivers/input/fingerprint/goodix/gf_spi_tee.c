@@ -116,6 +116,14 @@ static const struct of_device_id gf_of_match[] = {
 MODULE_DEVICE_TABLE(of, gf_of_match);
 #endif
 
+/* 3.18 SPI core matches DT children by modalias (vendor prefix stripped),
+ * so the of_match_table alone is not enough to bind. */
+static const struct spi_device_id gf_spi_id[] = {
+	{ "goodix-fp", 0 },
+	{ },
+};
+MODULE_DEVICE_TABLE(spi, gf_spi_id);
+
 const struct mt_chip_conf spi_ctrdata = {
 	.setuptime = 10,
 	.holdtime = 10,
@@ -1796,6 +1804,7 @@ static struct spi_driver gf_spi_driver = {
 	},
 	.probe = gf_probe,
 	.remove = gf_remove,
+	.id_table = gf_spi_id,
 #ifdef CONFIG_PM
 	.suspend = gf_suspend,
 	.resume = gf_resume,

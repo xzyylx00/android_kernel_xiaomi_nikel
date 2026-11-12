@@ -31,12 +31,24 @@
 	* YAS537 magnetometer / compass
 	* BMI160 gyroscope
 	* Wired headset detection, audio routing, mic and buttons
+	* Lock-screen numeric PIN (credential set and unlock verified)
 
 =================================================
 * Not working / untested:
+	* Fingerprint sensor
 	* Everything not listed above
 	* Other panel, touch, sensor and audio variants
 	* Daily-driver stability
+
+* Lock screen note:
+	* The PIN itself works (verified lock/unlock). MIUI Settings can
+	  appear to hang while saving because it calls the fingerprint
+	  `preEnroll()` afterwards; the credential is written before that
+	  call.
+	* Fingerprint: the Goodix driver finds no sensor on SPI0 (chip ID
+	  reads all zero), and the FPC TEE trustlet fails its INIT step
+	  (-3/-4). The stock FPC TEE kernel driver/integration is not in
+	  this tree yet, so fingerprint remains unsupported.
 
 # Building the kernel
 ```

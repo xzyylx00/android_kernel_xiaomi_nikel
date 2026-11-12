@@ -53,5 +53,14 @@ config GOODIX_FINGERPRINT
 	Goodix Fingerprint chip GF516/GF318GF316M/GF616M/GF318M TEE driver
 
 endif
+
+config FPC_TEE_IRQ
+	bool "FPC TEE IRQ/clock/reset sysfs bridge"
+	default n
+	---help---
+	Expose the sysfs attributes of the FPC TEE fingerprint platform
+	device (soc:fpc_interrupt@0). The vendor lib_fpc_tac_shared.so
+	needs them to open the sensor, even when the SPI transfers are
+	performed by the TEE.
 endif
 endmenu
