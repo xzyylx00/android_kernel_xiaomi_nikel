@@ -1608,6 +1608,17 @@ static int gf_probe(struct spi_device *spi)
 	gf_bypass_flash_gpio_cfg();
 	gf_spi_clk_enable(1);
 
+	/*
+	 * Prime the controller once. SPI_PAD_SEL_REG is only programmed by a
+	 * normal mt_spi_transfer(); the TEE Drspi drives the controller
+	 * directly, so the pad macro must already be selected.
+	 */
+	{
+		u8 gf_prime[4] = { 0 };
+
+		gf_spi_read_bytes_ree(0x8000, sizeof(gf_prime), gf_prime);
+	}
+
 	/* check firmware Integrity */
 #ifdef SUPPORT_REE_SPI
 	if (gf_probe_fw_check)
