@@ -10,7 +10,8 @@
 > AH1903 hall sensor, YAS537 magnetometer/compass support, the ACCDET
 > headset configuration and several device-tree fixes — were developed
 > with the help of an AI coding assistant. Everything was built and
-> tested on real hardware before being committed.
+> tested on real hardware before being committed, except the fingerprint
+> (the test unit's sensor module is faulty; see below).
 
 > **Tested on one device only**
 > This kernel has only been tested on a single Redmi Note 4 (nikel,
