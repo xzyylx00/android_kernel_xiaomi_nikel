@@ -32,11 +32,12 @@
 	* BMI160 gyroscope
 	* Wired headset detection, audio routing, mic and buttons
 	* Lock-screen numeric PIN (credential set and unlock verified)
-	* Fingerprint (Goodix on SPI0) — TEE/HAL init and enrollment start
 
 =================================================
 * Not working / untested:
-	* Fingerprint sensor
+	* Fingerprint sensor — this unit does not answer on SPI (chip id 0x0)
+	  although its IRQ fires on touch; the same happens with the official
+	  kernel, so the module is likely faulty (second-hand device)
 	* Everything not listed above
 	* Other panel, touch, sensor and audio variants
 	* Daily-driver stability
@@ -54,21 +55,24 @@
 	  pads. GPIO58 is the touch panel regulator enable
 	  (ctp_pins_regulator_en_output*); claiming it makes mtk-tpd fail to
 	  probe and kills touch.
-	* Current state: **working**. The kernel side (Goodix on SPI0,
-	  `/dev/goodix_fp`) was already correct. The TEE HAL failed with
-	  0x427 because MIUI's `mcDriverDaemon` stores the Goodix TA's
-	  secure objects under `/data/app/mcRegistry`, which
-	  PackageManagerService deletes at boot, and because the daemon is
-	  started before that store is usable (CoreXGT BUGFIXES.md #10b-f).
-	  Fix:
-	    - patch `/system/bin/mcDriverDaemon` to use
+	* Current state: the **software stack is complete** — Goodix on
+	  SPI0, `/dev/goodix_fp`, `gf_hal_init` = 0, the IRQ pin (GPIO86
+	  EINT9) is muxed and fires on touch, and the enrollment screen
+	  starts with `GF_CMD_ENROLL`.
+	  The TEE HAL originally failed with 0x427 because MIUI's
+	  `mcDriverDaemon` stores the Goodix TA's secure objects under
+	  `/data/app/mcRegistry`, which PackageManagerService deletes at
+	  boot, and because the daemon starts before that store is usable
+	  (CoreXGT BUGFIXES.md #10b-f). Fixed with:
+	    - patched `/system/bin/mcDriverDaemon` using
 	      `/data/misc/mcregistr` (same-length path);
-	    - create `/data/misc/mcregistr` at `post-fs-data`;
-	    - restart `mobicore` and `goodixfpd` once boot completes
-	      (a Magisk `service.d` script on this unit).
-	  With that, `gf_hal_init` returns 0 and the enrollment screen
-	  starts with `GF_CMD_ENROLL`. Touch and the lock-screen PIN are
-	  unaffected; finish the finger capture to verify unlock.
+	    - `/data/misc/mcregistr` created at `post-fs-data`;
+	    - a late `mobicore` + `goodixfpd` restart after boot.
+	  However, **this particular sensor module is faulty**: its IRQ
+	  fires, but every SPI read returns chip id 0x0, and the HAL's
+	  image command returns 1023, so enrollment times out. The official
+	  kernel shows the same behaviour, so the fault is in the module
+	  (SPI/flex or sensor die), not the kernel.
 
 # Building the kernel
 ```
